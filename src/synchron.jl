@@ -64,7 +64,7 @@ import SparseArrays: nzrange, rowvals, nonzeros, estimate_mulsize
 
 SparseArrays.nzrange(A::SparseVector, j::Integer) = 1:(j == 1 ? length(A.nzind) : 0)
 SparseArrays.rowvals(A::SparseVector) = A.nzind
-SparseArrays.nonzeros(A::SparseVector) = A.nzval
+#SparseArrays.nonzeros(A::SparseVector) = A.nzval
 
 function syncsum(f, A, i, B, j)
     si = MatrixAlgebra.SIter(nzrange(A, i), rowvals(A), nzrange(B, j), rowvals(B))

@@ -48,5 +48,6 @@ ldiv!(a::MFactorization, b) = MElement(ldiv!(a.data, b))
 
 
 include("synchron.jl")
+include("tridiagonalize.jl")
 
 end # module
