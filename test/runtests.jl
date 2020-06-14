@@ -2,5 +2,6 @@ using MatrixAlgebra
 using Test
 
 @testset "MatrixAlgebra.jl" begin
-    # Write your own tests here.
+    @testset "tridiagonalize" begin include("tridiagonalize.jl") end
+
 end
