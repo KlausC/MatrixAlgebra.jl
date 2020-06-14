@@ -11,55 +11,57 @@ For general matrices only `d` superdiagonals are processed.
 Works efficiently for `BandedMatrices`.
 """
 function tridiag_real(A::AbstractMatrix, d::Integer)
-    n = size(A, 1)
+    m, n = size(A)
+    m == n || throw(DimensionMismatch("matrix is not square: dimensions are $((m, n))"))
     B = copybands(A, d)
-    td = make_tridiag!(B, d)
-    dv = [real(B[i,i]) for i in 1:n]
-    ev = [abs(B[i-1,i]) for i = 2:n]
+    td = make_tridiag!(B)
+    dv = [real(B[1,i]) for i in 1:n]
+    ev = [abs(B[2,i]) for i = 2:n]
     SymTridiagonal(dv, ev)
 end
 
-function make_tridiag!(A, d)
-    m, n = size(A)
-    m == n || throw(DimensionMismatch("matrix is not square: dimensions are $((m, n))"))
-    0 < d < n || throw(ArgumentError("number of superdiagonals $d not in 1:$(n-1)"))
+# B[1:q,1:n] has the bands of a (2q-1)-banded hermitian nxn-matrix.
+# superdiagonal i valid in [i+1:n].  
+function make_tridiag!(B)
+    d, n = size(B)
+    1 < d <= n || throw(ArgumentError("number of diagonals $d not in 2:$n"))
 
-    for bm = d:-1:2
+    for bm = d-1:-1:2
         for k = 1:n-bm
             kp = k 
-            apiv = A[kp, bm+kp]
+            apiv = B[bm+1,bm+kp] 
             iszero(apiv) && continue
             for i = bm+k-1:bm:n-1
-                b = A[kp, i]
+                b = B[i-kp+1, i]
                 c, s, r, α = givens2(b, apiv)
-                u, v = A[i,i], A[i+1,i+1]
+                u, v = B[1,i], B[1,i+1]
                 upx = (u + v) / 2
-                A[i,i] = (u - v) / 2
-                A[kp,i] = r
+                B[1,i] = (u - v) / 2
+                B[i-kp+1,i] = r
                 for j = kp+1:i
-                    u = A[j,i]
-                    v = A[j,i+1] * α'
-                    A[j,i], A[j,i+1] = u * c + v * s, -u * s + v * c
+                    u = B[i-j+1,i]
+                    v = B[i-j+2,i+1] * α'
+                    B[i-j+1,i], B[i-j+2,i+1] = u * c + v * s, -u * s + v * c
                 end
-                A[i+1,i+1] = -(A[i,i] * α)'
+                B[1,i+1] = -(B[1,i] * α)'
                 ip = i + bm
                 for j = i+1:min(ip, n)
-                    u = A[i,j]
-                    v = A[i+1,j] * α
-                    A[i,j], A[i+1,j] = u * c + v * s, -u * s + v * c
+                    u = B[j-i+1,j]
+                    v = B[j-i,j] * α
+                    B[j-i+1,j], B[j-i,j] = u * c + v * s, -u * s + v * c
                 end
-                w = real(A[i+1,i+1])
-                A[i,i] = upx - w
-                A[i+1,i+1] = upx + w
+                w = real(B[1,i+1])
+                B[1,i] = upx - w
+                B[1,i+1] = upx + w
                 if ip < n
-                    v = A[i+1,ip+1] * α
-                    apiv, A[i+1,ip+1] = v * s, v * c
+                    v = B[ip-i+1,ip+1] * α
+                    apiv, B[ip-i+1,ip+1] = v * s, v * c
                 end
                 kp = i
             end
         end
     end
-    A
+    B
 end
 
 @inline function givens2(a::T, b::T) where T <: AbstractFloat
@@ -80,14 +82,15 @@ end
     c, s, r, α
 end
 
-copybands(A, d) = copybands!(zero(A), A, d)
+copybands(A, d) = copybands!(zeros(eltype(A), d+1, size(A,1)), A)
 
-function copybands!(B::AbstractMatrix, A::AbstractMatrix, d::Integer)
-    m, n = size(A)
-    for j = 1:n
-        for i = max(j-d,1):min(j+d,m)
-            B[i,j] = A[i,j]
+function copybands!(B::AbstractMatrix, A::AbstractMatrix)
+    d, n = size(B)
+    for i = 1:d
+        for j = i:n
+            B[i,j] = A[j-i+1,j]
         end
     end
     B
 end
+
