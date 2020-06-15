@@ -13,49 +13,51 @@ Works efficiently for `BandedMatrices`.
 function tridiag_real(A::AbstractMatrix, d::Integer)
     m, n = size(A)
     m == n || throw(DimensionMismatch("matrix is not square: dimensions are $((m, n))"))
+    0 < d <= n || throw(ArgumentError("number of diagonals $d not in 1:$n"))
+
     B = copybands(A, d)
     td = make_tridiag!(B)
-    dv = [real(B[1,i]) for i in 1:n]
-    ev = [abs(B[2,i]) for i = 2:n]
+    dv = [real(B[i,1]) for i in 1:n]
+    ev = d > 1 ? [abs(B[i,2]) for i = 2:n] : zeros(real(eltype(A)), n-1)
     SymTridiagonal(dv, ev)
 end
 
 # B[1:q,1:n] has the bands of a (2q-1)-banded hermitian nxn-matrix.
 # superdiagonal i valid in [i+1:n].  
 function make_tridiag!(B)
-    d, n = size(B)
-    1 < d <= n || throw(ArgumentError("number of diagonals $d not in 2:$n"))
+    n, d = size(B)
+    0 < d <= n || throw(ArgumentError("number of diagonals $d not in 1:$n"))
 
-    for bm = d-1:-1:2
+    @inbounds for bm = d-1:-1:2
         for k = 1:n-bm
             kp = k 
-            apiv = B[bm+1,bm+kp] 
+            apiv = B[bm+kp,bm+1] 
             iszero(apiv) && continue
             for i = bm+k-1:bm:n-1
-                b = B[i-kp+1, i]
+                b = B[i, i-kp+1]
                 c, s, r, α = givens2(b, apiv)
-                u, v = B[1,i], B[1,i+1]
+                u, v = B[i,1], B[i+1,1]
                 upx = (u + v) / 2
-                B[1,i] = (u - v) / 2
-                B[i-kp+1,i] = r
+                B[i,1] = (u - v) / 2
+                B[i,i-kp+1] = r
                 for j = kp+1:i
-                    u = B[i-j+1,i]
-                    v = B[i-j+2,i+1] * α'
-                    B[i-j+1,i], B[i-j+2,i+1] = u * c + v * s, -u * s + v * c
+                    u = B[i,i-j+1]
+                    v = B[i+1,i-j+2] * α'
+                    B[i,i-j+1], B[i+1,i-j+2] = u * c + v * s, -u * s + v * c
                 end
-                B[1,i+1] = -(B[1,i] * α)'
+                B[i+1,1] = -(B[i,1] * α)'
                 ip = i + bm
                 for j = i+1:min(ip, n)
-                    u = B[j-i+1,j]
-                    v = B[j-i,j] * α
-                    B[j-i+1,j], B[j-i,j] = u * c + v * s, -u * s + v * c
+                    u = B[j,j-i+1]
+                    v = B[j,j-i] * α
+                    B[j,j-i+1], B[j,j-i] = u * c + v * s, -u * s + v * c
                 end
-                w = real(B[1,i+1])
-                B[1,i] = upx - w
-                B[1,i+1] = upx + w
+                w = real(B[i+1,1])
+                B[i,1] = upx - w
+                B[i+1,1] = upx + w
                 if ip < n
-                    v = B[ip-i+1,ip+1] * α
-                    apiv, B[ip-i+1,ip+1] = v * s, v * c
+                    v = B[ip+1,ip-i+1] * α
+                    apiv, B[ip+1,ip-i+1] = v * s, v * c
                 end
                 kp = i
             end
@@ -64,7 +66,7 @@ function make_tridiag!(B)
     B
 end
 
-@inline function givens2(a::T, b::T) where T <: AbstractFloat
+function givens2(a::T, b::T) where T <: AbstractFloat
     r = hypot(a, b)
     s = b / r
     c = a / r
@@ -82,13 +84,13 @@ end
     c, s, r, α
 end
 
-copybands(A, d) = copybands!(zeros(eltype(A), d+1, size(A,1)), A)
+copybands(A, d) = copybands!(zeros(eltype(A), size(A,1), d), A)
 
 function copybands!(B::AbstractMatrix, A::AbstractMatrix)
-    d, n = size(B)
+    n, d = size(B)
     for i = 1:d
         for j = i:n
-            B[i,j] = A[j-i+1,j]
+            B[j,i] = A[j-i+1,j]
         end
     end
     B
