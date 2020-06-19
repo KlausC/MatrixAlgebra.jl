@@ -67,21 +67,37 @@ function make_tridiag!(B)
 end
 
 function givens2(a::T, b::T) where T <: AbstractFloat
-    r = hypot(a, b)
+    r = _hypot(a, b)
     s = b / r
     c = a / r
     c, s, r, one(T)
 end
 @inline function givens2(a::T, b::T) where T <: Complex
-    aa = abs(a)
-    ba = abs(b)
-    ra = hypot(aa, ba)
+    aa = _abs(a)
+    ba = _abs(b)
+    ra = _hypot(aa, ba)
     s = ba / ra
     c = aa / ra
     ua = a / aa
     α = ua' * (b / ba)
     r = ua * ra
     c, s, r, α
+end
+
+# speedy versions of abs and hypot (in the common case)
+function _abs(x::Complex)
+    s = sqrt(abs2(real(x)) + abs2(imag(x)))
+    _isclean(s) ? s : abs(x)
+end
+_abs(x) = abs(x)
+function _hypot(x, y)
+    s = sqrt(abs2(x) + abs2(y))
+    _isclean(s) ? s : hypot(x, y)
+end
+
+function _isclean(a::T) where T<:AbstractFloat
+    isfinite(a) &&
+    a >= sqrt(2 * floatmin(T))
 end
 
 copybands(A, d) = copybands!(zeros(eltype(A), size(A,1), d), A)
