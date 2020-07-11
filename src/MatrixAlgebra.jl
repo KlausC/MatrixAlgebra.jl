@@ -36,18 +36,10 @@ lu(a::MElement{T,2}) where T = MFactorization(lu(a.data))
 ldiv!(a::MFactorization, b) = MElement(ldiv!(a.data, b))
 
 
-
-
-
-
-
-
-
-
-
-
-
 include("synchron.jl")
 include("tridiagonalize.jl")
+include("toeplitz.jl")
+include("givens.jl")
+include("zrst.jl")
 
 end # module
