@@ -1,5 +1,5 @@
-export detf, quad, laguerre, estimate_mult, convergence, starting_points!
-export iteration_one, merge12, merge2
+export detf, quad, laguerre, estimate_mult, convergence, starting_points!, bounds
+export iteration_one, merge12, merge2, zrst
 
 """
     detf(t, s, x)
@@ -72,8 +72,7 @@ function laguerre(t::AbstractMatrix, s::AbstractMatrix, x::Real, r::Integer)
     laguerre(η, ζ, n, r), κ
 end
 function laguerre(η::T, ζ::T, n::Integer, r::Integer) where T<:Real
-    disc = (η^2 * (n-1) - ζ * n) * (n - r) / r
-    @assert disc >= 0
+    disc = max((η^2 * (n-1) - ζ * n) * (n - r) / r, zero(T))
     disc = copysign(sqrt(disc), η) 
     n / (η + disc)
 end
@@ -120,23 +119,42 @@ calculated accurately.
 """
 function starting_points!(λ0::Vector{<:Real}, t, s, a::Real, b::Real)
     @assert issorted(λ0)
-    @assert a <= λ0[1] <= λ0[end] < b
-
     m = length(λ0)  # number of ev in input data
-    c, d = λ0[1], λ0[end]
+    @assert  m == 0 || prevfloat(a) <= λ0[1] <= λ0[end] < nextfloat(b)
+
     ka = κ(a, t, s)
     kb = κ(b, t, s)
-    kc = κ(c, t, s)
-    kd = κ(d, t, s)
-    if ka < kc
-        pushfirst!(λ0, a)
+    offseta = false
+    offsetb = false
+    if m == 0
+        if ka < kb
+            push!(λ0, a)
+            push!(λ0, b)
+            kb = ka + 1
+            m += 2
+            offseta = true
+        end
+    else
+        if m >= 1
+            c = λ0[1]
+            kc = κ(c, t, s)
+            if ka < kc
+                pushfirst!(λ0, a)
+                m += 1
+            end
+            offseta = kc <= ka + 1
+        end
+        if m >= 2
+            d = λ0[end]
+            kd = κ(d, t, s)
+            if kb > kd
+                push!(λ0, b)
+                m += 1
+            end
+            offsetb = m - offseta - kb + ka
+        end
     end
-    offseta = kc <= ka + 1
-    if kb > kd
-        push!(λ0, b)
-    end
-    offsetb = kd >= kb - 1
-    @assert length(λ0) - offseta - offsetb == kb - ka
+    #@assert length(λ0) - offseta - offsetb == kb - ka "$m $(length(λ0)) $offseta $offsetb $kb $ka \n $(λ0)"
     λ0, ka, offseta, offsetb
 end
 
@@ -175,7 +193,7 @@ function iteration_one(a::T, x::T, b::T, j::Integer, n::Integer, r::Integer, t, 
         else
             b = x
         end
-        ( η > 0 ) == sig && ( κ == j || κ == j-1 ) && break
+        ( η > 0 ) == sig && break
         x = (a + b) / 2
     end
     
@@ -227,8 +245,13 @@ function merge12(t::AbstractMatrix{T}, s::AbstractMatrix{T}, a, b) where T
         d = u^2 - v
         d = sqrt(d)
         s = u + copysign(d, u)
-        pushres!(res, s, a, b)
-        pushres!(res, v / s, a, b)
+        if u >= 0
+            pushres!(res, v / s, a, b)
+            pushres!(res, s, a, b)
+        else
+            pushres!(res, s, a, b)
+            pushres!(res, v / s, a, b)
+        end
     end
 end
 
@@ -257,5 +280,57 @@ function merge2(t, s, a, b)
         #println("merge($n): $(λ[i]) <- iterate ($a <= $x < $b) j = $j isig = $sig, mult = $mult" )
     end
     λ
+end
+
+function bisect(t, s, a, b, x, dx, j)
+    while b - a > dx
+        k = κ(x, t, s)
+        if k >= j
+            b = x
+        else
+            a = x
+        end
+        if isfinite(a) && isfinite(b)
+            x = a + (b - a) / 2
+        else
+            x = 2 * x
+        end
+    end
+    a, b
+end
+
+function bounds(t, s, scale::T, dx, j) where T
+    x = zero(T)
+    if κ(x, t, s) >= j
+        a = T(-Inf)
+        b = x
+        x = -scale
+        lb, ub = bisect(t, s, a, b, x, dx, j)
+    else
+        a = x
+        b = T(Inf)
+        x = scale
+        lb, ub = bisect(t, s, a, b, x, dx, j)
+    end
+    lb, ub
+end
+
+function bounds(t, s)
+    T = real(eltype(t))
+    n = size(t, 2)
+    scale = norm(t) / norm(s)
+    if !isfinite(scale)
+        scale = oneunit(T)
+    end
+    dx = scale / 4
+    lb, _ = bounds(t, s, scale, dx, 1)
+    _, ub = bounds(t, s, scale, dx, n)
+    lb, ub
+end
+
+function zrst(t, s, a=-Inf, b=Inf)
+    lb, ub = bounds(t, s)
+    aa, bb = max(a, lb), min(b, ub)
+    merge2(t, s, aa, bb)
 end
 
