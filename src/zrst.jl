@@ -1,5 +1,5 @@
 export detf, quad, laguerre, estimate_mult, convergence, starting_points!, bounds
-export iteration_one, merge12, merge2, zrst
+export iteration_one, merge12, merge2, zrst, correct
 
 """
     detf(t, s, x)
@@ -101,6 +101,7 @@ end
 function convergence(x2, x1, x0)
     ϵ = eps(x2)
     dx2 = abs(x2 - x1)
+    dx2 > ϵ * 1000 && return false
     dx2 <= ϵ && return true
     dx1 = abs(x1 - x0)
     dx2 >= dx1 && return true
@@ -183,7 +184,8 @@ function iteration_one(a::T, x::T, b::T, j::Integer, n::Integer, r::Integer, t, 
     @assert 1 <= r
     mult = r
 
-    η, ζ, κ = zero(x), zero(x), 0
+    bcount, lcount = 0, 0
+    η, ζ, κ, sig  = zero(x), zero(x), 0, true
     while a < b
         _, η, ζ, κ = detf(t, s, x)
         sig = κ < j 
@@ -193,8 +195,13 @@ function iteration_one(a::T, x::T, b::T, j::Integer, n::Integer, r::Integer, t, 
         else
             b = x
         end
-        ( η > 0 ) == sig && break
-        x = (a + b) / 2
+        ( η > 0 ) == sig && abs(κ - j) <= 1 && abs(b - a) * abs(η) > 3 && break
+        x = a + (b - a) / 2
+        bcount += 1
+        if bcount > 64
+            println("no bis-convergence for $j/$n: $a <= $x <= $b")
+            break
+        end
     end
     
     x1 = NaN
@@ -205,15 +212,21 @@ function iteration_one(a::T, x::T, b::T, j::Integer, n::Integer, r::Integer, t, 
         dx = laguerre(η, ζ, n, mult)
         x = min(b, max(a, x1 + dx))
         convergence(x, x1, x0) && break
+        ( dx > 0 ) == sig || break
+        lcount += 1
+        if lcount > 50
+            println("no convergence for $j/$n: $a <= $x <= $b ")
+            break
+        end
         while x != x1
             _, η, ζ, κ = detf(t, s, x)
             dκ = abs(κ - κ1) 
             ( mult <= 1 || dκ <= 1 ) && break
             mult = dκ
-            x = (x + x1) / 2
+            x += (x1 - x) / 2
         end
     end
-    x
+    x, bcount, lcount
 end
 
 function pushres!(res, ev, a, b)
@@ -228,7 +241,7 @@ function merge12(t::AbstractMatrix{T}, s::AbstractMatrix{T}, a, b) where T
     res = real(T)[]
     if n == 1
         ev = real(t[1,1]) / real(s[1,1])
-        return pushres!(res, ev, a, b)
+        return pushres!(res, ev, a, b), [], []
     elseif n == 2
         s11, s12, s22 = s[1,1], s[2,1], s[1,2]
         ss = s11 * s22 - abs2(s12)
@@ -253,6 +266,7 @@ function merge12(t::AbstractMatrix{T}, s::AbstractMatrix{T}, a, b) where T
             pushres!(res, v / s, a, b)
         end
     end
+    res, [], []
 end
 
 function merge2(t, s, a, b)
@@ -261,13 +275,15 @@ function merge2(t, s, a, b)
     #println("merge($n)")
     T = real(eltype(t))
     n2 = (n + 1) ÷ 2
-    res1 = merge2(view(t, :, 1:n2), s, a, b)
-    res2 = merge2(view(t, :, n2+1:n), view(s, :, n2+1:n), a, b)
+    res1, = merge2(view(t, :, 1:n2), s, a, b)
+    res2, = merge2(view(t, :, n2+1:n), view(s, :, n2+1:n), a, b)
     μ = sort([res1; res2])
 
     μ, ka, offseta, offsetb = starting_points!(μ, t, s, a, b)
     p = length(μ) - offseta - offsetb
     λ = Vector{T}(undef, p)
+    bcount = zeros(Int, p)
+    lcount = zeros(Int, p)
 
     for i = 1 : p
         j = i + ka
@@ -276,10 +292,10 @@ function merge2(t, s, a, b)
         sig = κ(x, t, s) < j ? 1 : -1
         a, b = interval(μ, jj)
         mult = estimate_mult(x, sig, μ, jj)
-        λ[i] = iteration_one(a, x, b, j, n, mult, t, s)    
+        λ[i], bcount[i], lcount[i] = iteration_one(a, x, b, j, n, mult, t, s)    
         #println("merge($n): $(λ[i]) <- iterate ($a <= $x < $b) j = $j isig = $sig, mult = $mult" )
     end
-    λ
+    λ, bcount, lcount
 end
 
 function bisect(t, s, a, b, x, dx, j)
@@ -332,5 +348,16 @@ function zrst(t, s, a=-Inf, b=Inf)
     lb, ub = bounds(t, s)
     aa, bb = max(a, lb), min(b, ub)
     merge2(t, s, aa, bb)
+end
+
+function correct(t, s, x, dx)
+    n = size(t, 2)
+    r = 1
+    a = x - dx
+    b = x + dx
+    j1 = κ(a, t, s)
+    j2 = κ(b, t, s)
+    j = j2
+    iteration_one(a, x, b, j, n, r, t, s)
 end
 
