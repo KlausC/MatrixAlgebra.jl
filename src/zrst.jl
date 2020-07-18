@@ -71,10 +71,10 @@ function laguerre(t::AbstractMatrix, s::AbstractMatrix, x::Real, r::Integer)
     _, η, ζ, κ = detf(t, s, x)
     laguerre(η, ζ, n, r), κ
 end
+# in case of negative discriminant fall back to Newton step (adapted for multiplicity r)
 function laguerre(η::T, ζ::T, n::Integer, r::Integer) where T<:Real
-    disc = max((η^2 * (n-1) - ζ * n) * (n - r) / r, zero(T))
-    disc = copysign(sqrt(disc), η) 
-    n / (η + disc)
+    disc = (η^2 * (n-1) - ζ * n) * (n - r) / r
+    disc >= 0 ? n / ( η + copysign(sqrt(disc), η) ) : r / η
 end
 
 """
