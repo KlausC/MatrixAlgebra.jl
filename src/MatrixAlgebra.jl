@@ -41,5 +41,6 @@ include("tridiagonalize.jl")
 include("toeplitz.jl")
 include("givens.jl")
 include("zrst.jl")
+include("determinant.jl")
 
 end # module
