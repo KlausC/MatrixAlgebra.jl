@@ -8,101 +8,94 @@ using DoubleFloats
 const SymRealHerm{T} = Union{Symmetric{T,<:BandedMatrix},Hermitian{T,<:BandedMatrix}}
 
 """
-    detderivates(A::AbstractMatrix)
+    detderivates(A, B, s::Real)
 
-For a symmetric real or Hermtian matrix `A` calculate determinatnt and derived values.
+For a symmetric real or Hermtian matriices `A` and `B` calculate determinant of `A-sB`
+resp. derived values:
+
+κ: number of zeros of characteristic polynomial `p(x) = det(A - x *  B)` below `s`
+η: `p'(s) / p(s)`
+ζ: `p''(s) / p(s) - η^2`
 """
-function detderivates(A::M, B::M, s) where {T,M<:SymRealHerm{T}}
+function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
+    k = max(bandwidth(A), bandwidth(B))
+    W = mwiden(T)
+    Q = zeros(W, k+1, k+1)
+    Qp = zeros(T, k+1, k+1, 2)
+    detderivates!(Q, Qp, A, B, s)
+end
+function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     R = real(T)
     n = size(A, 1)
-    q = max(bandwidth(A), bandwidth(B))
-    W = mwiden(T)
-    a, ap, app, Q, Qp, Qpp = initQ!(q, W, T, A, B, s)
-    
     κ = 0
     η = zero(R)
-    ζs = zero(R)
-    for k = 1:n
-        ξ, ξp, ξpp = Q[1,1], Qp[1,1], Qpp[1,1]
-        println("$k: $Q")
+    ζ = zero(R)
+    Q, Qp = initQ!( Q, Qp, A, B, s)
+    for i = 1:n
+        ξ, ξp, ξpp = R(Q[1,1]), Qp[1,1,1], Qp[1,1,2]
         κ += ξ < 0
         dξ = ξp / ξ
         η += dξ
-        ζs += ξpp / ξ - dξ^2
-        k == n && break
-        update!(a, ap, app, Q, Qp, Qpp)
-        stepQ!(k, a, ap, app, Q, Qp, Qpp, A, B, s)
+        ζ += ξpp / ξ - dξ^2
+        updateQ!(Q, Qp)
+        stepQ!(Q, Qp, i, A, B, s)
     end
-    κ, η, ζs + η^2, Q, Qp, Qpp
+    κ, η, ζ
 end
 
-function initQ!(q, W, T, A, B, s)
-    Q = zeros(W, q, q)
-    Qp = zeros(T, q, q)
-    Qpp = zeros(T, q, q)
-    a = zeros(T, q+1)
-    ap = zeros(T, q+1)
-    app = zeros(T, q+1)
-    a[q+1] = 1
-    for j = 1:q
-        for i = j:q
+function initQ!(Q, Qp, A, B, s)
+    k = size(Q, 1)
+    for j = 1:k
+        for i = j:k
             Q[i,j] = A[i,j] - B[i,j] * s
-            Qp[i,j] = -B[i,j]
+            Qp[i,j,1] = -B[i,j]
         end
     end
-    a, ap, app, Q, Qp, Qpp
+    Q, Qp
 end
 
-function stepQ!(k, a, ap, app, Q, Qp, Qpp, A, B, s)
+function stepQ!(Q, Qp, k, A, B, s)
     q = size(Q, 1)
     n = size(A, 1)
-    a[q+1] = Q[1,1]
-    ap[q+1] = Qp[1,1]
-    app[q+1] = Qpp[1,1]
-    q = min(q, n - k)
-    for j = 1:q-1
-        a[j] = Q[j+1,1]
-        ap[j] = Qp[j+1,1]
-        app[j] = Qpp[j+1,1]
-    end
-    a[q] = A[k+q,k] - B[k+q,k] * s
-    ap[q] = -B[k+q,k]
-    a[q] = 0
     for j = 1:q-1
         for i = j:q-1
             Q[i,j] = Q[i+1,j+1]
-            Qp[i,j] = Qp[i+1,j+1]
-            Qpp[i,j] = Qpp[i+1,j+1]
+            Qp[i,j,1] = Qp[i+1,j+1,1]
+            Qp[i,j,2] = Qp[i+1,j+1,2]
         end
-        Q[q,j] = A[k+q,k+j] - B[k+q,k+j] * s
-        Qp[q,j] = -B[k+q,k+j]
-        Qpp[q,j] = 0
+        if k + q <= n
+            Q[q,j] = A[k+q,k+j] - B[k+q,k+j] * s
+            Qp[q,j,1] = -B[k+q,k+j]
+            Qp[q,j,2] = 0
+        end
     end
-    Q[q,q] = A[k+q,k+q] - B[k+q,k+q] * s
-    Qp[q,q] = -B[k+q,k+q]
-    Q[q,q] = 0
+    if k + q <= n
+        Q[q,q] = A[k+q,k+q] - B[k+q,k+q] * s
+        Qp[q,q,1] = -B[k+q,k+q]
+        Qp[q,q,2] = 0
+    end
     nothing
 end
 
-function update!(a, ap, app, Q, Qp, Qpp)
+function updateQ!(Q, Qp)
     q = size(Q, 1)
-    b = a[q+1]
-    bp = ap[q+1]
-    bpp = app[q+1]
-    for j = 1:q
-        aj = a[j]'
-        apj = ap[j]'
-        appj = app[j]'
+    b = Q[1,1]
+    bp = Qp[1,1,1]
+    bpp = Qp[1,1,2]
+    for j = 2:q
+        aj = Q[j,1]'
+        apj = Qp[j,1,1]'
+        appj = Qp[j,1,2]'
         for i = j:q
-            ai = a[i]
-            api = ap[i]
-            appi = app[i]
+            ai = Q[i,1]
+            api = Qp[i,1,1]
+            appi = Qp[i,1,2]
             ajib = aj * ai / b
             Q[i,j] -= ajib 
-            qp = ( apj * ai + aj * api - ajib * bp ) / b
-            Qp[i,j] -= qp
-            qpp = appj * ai + 2apj * api + aj * appi - qp * bp - ajib * bpp + qp * bp / b
-            Qpp[i,j] -= qpp / b
+            apjib = ( apj * ai + aj * api - ajib * bp ) / b
+            Qp[i,j,1] -= apjib
+            appjib = (apj * api - apjib * bp) * 2 + appj * ai + aj * appi - ajib * bpp 
+            Qp[i,j,2] -= appjib / b
         end
     end
     nothing
