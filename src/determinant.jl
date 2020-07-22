@@ -15,13 +15,13 @@ resp. derived values:
 
 κ: number of zeros of characteristic polynomial `p(x) = det(A - x *  B)` below `s`
 η: `p'(s) / p(s)`
-ζ: `p''(s) / p(s) - η^2`
+ζ: `p''(s) / p(s)`
 """
 function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
-    k = max(bandwidth(A), bandwidth(B))
+    k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
     W = mwiden(T)
-    Q = zeros(W, k+1, k+1)
-    Qp = zeros(T, k+1, k+1, 2)
+    Q = zeros(W, k, k)
+    Qp = zeros(T, k, k, 2)
     detderivates!(Q, Qp, A, B, s)
 end
 function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
@@ -32,11 +32,11 @@ function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     ζ = zero(R)
     Q, Qp = initQ!( Q, Qp, A, B, s)
     for i = 1:n
-        ξ, ξp, ξpp = R(Q[1,1]), Qp[1,1,1], Qp[1,1,2]
+        ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
         κ += ξ < 0
         dξ = ξp / ξ
+        ζ += ξpp / ξ + 2 * η * dξ
         η += dξ
-        ζ += ξpp / ξ - dξ^2
         updateQ!(Q, Qp)
         stepQ!(Q, Qp, i, A, B, s)
     end
@@ -44,7 +44,7 @@ function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
 end
 
 function initQ!(Q, Qp, A, B, s)
-    k = size(Q, 1)
+    k = min(size(Q, 1), size(A, 1))
     for j = 1:k
         for i = j:k
             Q[i,j] = A[i,j] - B[i,j] * s
