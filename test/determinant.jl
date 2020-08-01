@@ -23,6 +23,7 @@ function det2(A, B, s)
     ( det0(A, B, s + h) + det0(A, B, s - h) -2*det0(A, B, s) ) / h^2
 end
 
+
 @testset "basics n=$n s=$s" for n = [1, 2, 3, 10], s = [1.0, 0.5]
     A, B = sband(n, [0.1]), sband(n, [1.0])
     κ, η, ζ = detderivates(A, B, s)

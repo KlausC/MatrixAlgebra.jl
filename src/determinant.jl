@@ -1,5 +1,5 @@
 
-export mwiden, detderivates
+export mwiden, detderivates, eigbounds, make_kappa
 
 
 using BandedMatrices
@@ -10,12 +10,21 @@ const SymRealHerm{T} = Union{Symmetric{T,<:BandedMatrix},Hermitian{T,<:BandedMat
 """
     detderivates(A, B, s::Real)
 
-For a symmetric real or Hermtian matriices `A` and `B` calculate determinant of `A-sB`
-resp. derived values:
+For a symmetric real or Hermtian matriices `A` and `B` calculate determinant of
+`A - s * B` respectively related values:
 
-κ: number of zeros of characteristic polynomial `p(x) = det(A - x *  B)` below `s`
-η: `p'(s) / p(s)`
-ζ: `p''(s) / p(s)`
+`κ`: number of zeros of characteristic polynomial `p(x) = det(A - x *  B)` below `s`
+
+`η`: `p'(s) / p(s)`
+
+`ζ`: `p''(s) / p(s)`
+
+!!! note
+    For a zero of `p` with multplicity `r`,
+    the Laguerre iteration formula is `s -= n / ( η + sqrt(((n-1)*η² - n*ζ) * (n-r)/r) )`.
+
+    This iteration has far better area- and order of convergence than
+    for example Newton's iteration `s -= 1 / η`.
 """
 function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
     k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
@@ -27,27 +36,51 @@ end
 function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     R = real(T)
     n = size(A, 1)
+    ϵ = eps(T)^2
     κ = 0
-    η = zero(R)
-    ζ = zero(R)
+    dξp = dξpp = η = zero(R)
+    ξ, ξp, ξpp = zeros(R, 3)
+    ζs = zero(R)
     Q, Qp = initQ!( Q, Qp, A, B, s)
     for i = 1:n
         ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
+        if iszero(ξ)
+            ξ = ϵ
+        end
+        dξp = ξp / ξ
+        dξpp = ξpp / ξ
+        #println("i=$i ξ=$ξ dξp=$dξp dξpp = $dξpp")
         κ += ξ < 0
-        dξ = ξp / ξ
-        ζ += ξpp / ξ + 2 * η * dξ
-        η += dξ
-        updateQ!(Q, Qp)
+        dξ2 = dξp^2
+        if abs(η + dξp) < abs(η) * 1e-5
+            # println("Δη small: i=$i $(abs(η + dξp) / abs(η))")
+        end
+        if abs(dξpp) > dξ2 * 1000
+            dξpp = zero(R)
+        end
+        dζs = dξ2 - dξpp
+        ζs += dζs
+        if ζs < -η^2 / i
+            # println("discriminant negative: i=$i ξ=$ξ $ξp $ξpp  η=$η ζs=$ζs")
+            ζs = -η^2 / i
+        end
+        η += dξp
+        if  i == n && ζs > 1.5e10 * η^2
+            # println("discriminant too big: i=$i ξ=$ξ $ξp $ξpp  η=$η ζs=$ζs")
+            # ζs = 1.5 * η^2
+        end
+        updateQ!(ξ, Q, Qp, i)
         stepQ!(Q, Qp, i, A, B, s)
     end
-    κ, η, ζ
+    κ, η, η^2 - ζs, dξp, dξpp, ξ, ξp, ξpp
 end
 
 function initQ!(Q, Qp, A, B, s)
     k = min(size(Q, 1), size(A, 1))
+    W = eltype(Q)
     for j = 1:k
         for i = j:k
-            Q[i,j] = A[i,j] - B[i,j] * s
+            Q[i,j] = W(A[i,j]) - W(B[i,j]) * s
             Qp[i,j,1] = -B[i,j]
         end
     end
@@ -57,6 +90,7 @@ end
 function stepQ!(Q, Qp, k, A, B, s)
     q = size(Q, 1)
     n = size(A, 1)
+    W = eltype(Q)
     for j = 1:q-1
         for i = j:q-1
             Q[i,j] = Q[i+1,j+1]
@@ -64,38 +98,57 @@ function stepQ!(Q, Qp, k, A, B, s)
             Qp[i,j,2] = Qp[i+1,j+1,2]
         end
         if k + q <= n
-            Q[q,j] = A[k+q,k+j] - B[k+q,k+j] * s
+            Q[q,j] = W(A[k+q,k+j]) - W(B[k+q,k+j]) * s
             Qp[q,j,1] = -B[k+q,k+j]
             Qp[q,j,2] = 0
         end
     end
     if k + q <= n
-        Q[q,q] = A[k+q,k+q] - B[k+q,k+q] * s
+        Q[q,q] = W(A[k+q,k+q]) - W(B[k+q,k+q]) * s
         Qp[q,q,1] = -B[k+q,k+q]
         Qp[q,q,2] = 0
     end
     nothing
 end
 
-function updateQ!(Q, Qp)
+function updateQ!(ξ, Q, Qp, k)
+    T = eltype(Qp)
+    R = real(T)
     q = size(Q, 1)
-    b = Q[1,1]
-    bp = Qp[1,1,1]
-    bpp = Qp[1,1,2]
+    aa = real(ξ)
+    a = R(aa)
+    ap = real(Qp[1,1,1])
+    app = real(Qp[1,1,2])
+    bb = inv(aa)
+    b = R(bb)
+    bp = -ap * b * b
+    bpp = -(app * b + 2 * ap * bp) * b
     for j = 2:q
-        aj = Q[j,1]'
+        aaj = Q[j,1]'
+        aj = T(aaj)
         apj = Qp[j,1,1]'
         appj = Qp[j,1,2]'
+        aajb = aaj * bb
+        ajb = aj * b
+        apjb = apj * b + aj * bp
+        appjb = appj * b + 2 * apj * bp + aj * bpp
         for i = j:q
-            ai = Q[i,1]
+            aai = Q[i,1]
+            ai = T(aai)
             api = Qp[i,1,1]
             appi = Qp[i,1,2]
-            ajib = aj * ai / b
-            Q[i,j] -= ajib 
-            apjib = ( apj * ai + aj * api - ajib * bp ) / b
+            aajib = aajb * aai
+            ajib = ajb * ai
+            aij = Q[i,j]
+            Q[i,j] -= aajib
+            apjib = apjb * ai + ajb * api
             Qp[i,j,1] -= apjib
-            appjib = (apj * api - apjib * bp) * 2 + appj * ai + aj * appi - ajib * bpp 
-            Qp[i,j,2] -= appjib / b
+            appjib = appjb * ai + 2*apjb * api + ajb * appi
+            appji = Qp[i,j,2]
+            if abs(appji - appjib) < 1e-8*max(abs(appji), abs(appjib))
+                # println("inaccurate at $k($i, $j): $(abs(appji) \ (appji - appjib))")
+            end
+            Qp[i,j,2] -= appjib
         end
     end
     nothing
@@ -103,6 +156,79 @@ end
 
 # widen Float64 to Double64
 mwiden(x::Type) = widen(x)
-mwiden(x::Type{Float64}) = Double64
+mwiden(x::Type{Float64}) = Float64 # Double64
 mwiden(x::Type{Complex{T}}) where T = Complex{mwiden(T)}
 mwiden(x::T) where T = mwiden(T)(x)
+
+function make_kappa(A, B)
+    x -> detderivates(A, B, x)[1]
+end
+
+function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mulf) where T<:AbstractFloat
+    n = k2 - k1 + 1
+    length(lb) == n == length(ub) || throw(ArgumentError("length mismatch"))
+    fill!(lb, -T(Inf))
+    fill!(ub, T(Inf))
+    scalep = abs(scale)
+    scalen = - scalep
+    count = 0
+
+    function setx(x)
+        k = mulf(x)
+        count += 1
+        for j =  max(k-k1+2, 1):k2-k1+1
+            if x > lb[j]
+                lb[j] = x
+            else
+                break
+            end
+        end
+        for j = min(n, k-k1+1):-1:1
+            if x < ub[j]
+                ub[j] = x
+            else
+                break
+            end
+        end
+    end
+
+    function findgap()
+        for j = 1:n-1
+            if ub[j] > lb[j+1]
+                return j
+            end
+        end
+        return n
+    end
+    function midpoint(a, b)
+        x = a + (b - a) / 2
+        isfinite(x) && return x
+        isnan(x) && return zero(x)
+        if isinf(a)
+            x = scalen
+            scalea *= 2
+        else
+            x = scalep
+            scalep *= 2
+        end
+        x
+    end
+
+    while isinf(lb[1])
+        x = midpoint(lb[1], ub[1])
+        setx(x)
+    end
+    println(count)
+    while isinf(ub[n])
+        x = midpoint(lb[n], ub[n])
+        setx(x)
+    end
+    println(count)
+    while ( j = findgap() ) < n
+        x = midpoint(lb[j+1], ub[j])
+        setx(x)
+    end
+    println(count)
+    lb, ub
+end
+
