@@ -1,5 +1,5 @@
 
-export mwiden, detderivates, eigbounds, make_kappa
+export mwiden, detderivates, eigbounds, make_kappa, eigval
 
 
 using BandedMatrices
@@ -36,7 +36,7 @@ end
 function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     R = real(T)
     n = size(A, 1)
-    ϵ = eps(T)^2
+    ϵ = eps(T)
     κ = 0
     dξp = dξpp = η = zero(R)
     ξ, ξp, ξpp = zeros(R, 3)
@@ -164,7 +164,18 @@ function make_kappa(A, B)
     x -> detderivates(A, B, x)[1]
 end
 
-function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mulf) where T<:AbstractFloat
+# determine lower and upper bounds for eigenvalues number k1:k2.
+# Bisectional method for function mulf, where mulf(x) is the number of eigenvalues
+# less than or equal to x.
+# scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
+# to control interval size growth for smallest and largest ev.
+function eigbounds(k1::Int, k2::Int, scale::T, mulf) where T<:AbstractFloat
+    n = k2 - k1 + 1
+    lb = Vector{T}(undef, n)
+    ub = Vector{T}(undef, n)
+    eigbounds!(lb, ub, k1, k2, scale, mulf)
+end
+function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, scale::T, mulf) where {T<:AbstractFloat,V<:AbstractVector{T}}
     n = k2 - k1 + 1
     length(lb) == n == length(ub) || throw(ArgumentError("length mismatch"))
     fill!(lb, -T(Inf))
@@ -172,7 +183,7 @@ function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mul
     scalep = abs(scale)
     scalen = - scalep
     count = 0
-
+    # evaluate mulf(x) and improve bounds according to result.
     function setx(x)
         k = mulf(x)
         count += 1
@@ -192,6 +203,7 @@ function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mul
         end
     end
 
+    # find (first) index j with ub[j] > lb[j+1]
     function findgap()
         for j = 1:n-1
             if ub[j] > lb[j+1]
@@ -200,15 +212,16 @@ function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mul
         end
         return n
     end
+    # midpoint for finite a, b, otherwise extend towards infinity
     function midpoint(a, b)
         x = a + (b - a) / 2
         isfinite(x) && return x
         isnan(x) && return zero(x)
         if isinf(a)
-            x = scalen
+            x = b + scalen
             scalea *= 2
         else
-            x = scalep
+            x = a + scalep
             scalep *= 2
         end
         x
@@ -218,17 +231,46 @@ function eigbounds(lb::Vector{T}, ub::Vector{T}, k1::Int, k2::Int, scale::T, mul
         x = midpoint(lb[1], ub[1])
         setx(x)
     end
-    println(count)
     while isinf(ub[n])
         x = midpoint(lb[n], ub[n])
         setx(x)
     end
-    println(count)
     while ( j = findgap() ) < n
         x = midpoint(lb[j+1], ub[j])
         setx(x)
     end
-    println(count)
     lb, ub
 end
+
+function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
+    disc = max(η^2 * (n -1) - ζ * n, 0)
+    sq = sqrt(disc * (n-1) / r)
+    n / ( η + copysign(sq, η) )
+end
+
+function eigval(A, B, k::Int, a::T, b::T, tol::T=eps(T), r= 1) where T<:AbstractFloat
+    n = size(A, 1)
+    x = a + (b - a) / 2
+    while b - a > tol
+        κ, η, ζ = detderivates(A, B, x)
+        if κ < k
+            a = x
+        else
+            b = x
+        end
+        if κ == k - 1 && η <= 0 || κ == k && η >= 0
+            dx = -laguerre(η, ζ, n, r)
+            x += dx
+            if abs(dx) < tol
+                break
+            end
+        else
+            x = a + (b - a) / 2
+        end
+    end
+    x
+end
+
+
+
 
