@@ -53,3 +53,29 @@ end
     @test isapprox(η, det1(A, B, s) / d0; rtol=1e-3)
     @test isapprox(ζ, det2(A, B, s) / d0; atol=1e-5, rtol=1e-3)
 end
+
+
+kappa(x) = x < 0.0 ? 0 : 2
+kappa1(x) = x < 1.0 ? 0 : 3
+kappa2(x) = x < 0.2 ? 0 : x < 1 ? 1 : x < 2 ? 3 : typemax(Int)
+
+@testset "bisection bounds 0-2" begin
+    lb, ub = eigbounds(1, 2, kappa, 1.0)
+    @test  all(isapprox.(lb, 0.0; atol=eps()))
+    @test  all(isapprox.(ub, 0.0; atol=eps()))
+end
+@testset "bisection bounds 1-3" begin
+    lb, ub = eigbounds(1, 3, kappa1, 1.0)
+    @test  all(isapprox.(lb, 1.0; atol=eps()))
+    @test  all(isapprox.(ub, 1.0; atol=eps()))
+end
+@testset "bisection bounds 2-4" begin
+    lb, ub = eigbounds(1, 4, kappa2, 1.0)
+    @test all(isapprox.(lb, [0, 1, 1, 1])) 
+    @test all(isapprox.(ub, [0.5, 1, 1, 3])) 
+end
+@testset "bisection bounds 2-5" begin
+    lb, ub = eigbounds(1, 5, kappa2, 1.0)
+    @test all(isapprox.(lb, [0, 1, 1, 2, 2])) 
+    @test all(isapprox.(ub, [0.5, 1, 1, 2, 2])) 
+end

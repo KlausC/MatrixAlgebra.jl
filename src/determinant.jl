@@ -36,7 +36,7 @@ end
 function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     R = real(T)
     n = size(A, 1)
-    ϵ = eps(T)
+    ϵ = T(eps(real(T)))
     κ = 0
     dξp = dξpp = η = zero(R)
     ξ, ξp, ξpp = zeros(R, 3)
@@ -165,36 +165,37 @@ function make_kappa(A, B)
 end
 
 # determine lower and upper bounds for eigenvalues number k1:k2.
-# Bisectional method for function mulf, where mulf(x) is the number of eigenvalues
+# Bisectional method for function bif, where bif(x) is the number of eigenvalues
 # less than or equal to x.
 # scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
 # to control interval size growth for smallest and largest ev.
-function eigbounds(k1::Int, k2::Int, scale::T, mulf) where T<:AbstractFloat
+function eigbounds(k1::Int, k2::Int, bif::Function, scale::T, rtol=eps(T), atol=rtol^2) where T<:AbstractFloat
     n = k2 - k1 + 1
     lb = Vector{T}(undef, n)
     ub = Vector{T}(undef, n)
-    eigbounds!(lb, ub, k1, k2, scale, mulf)
+    eigbounds!(lb, ub, k1, k2, bif, scale, rtol, atol)
 end
-function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, scale::T, mulf) where {T<:AbstractFloat,V<:AbstractVector{T}}
+function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol) where {T<:AbstractFloat,V<:AbstractVector{T}}
     n = k2 - k1 + 1
     length(lb) == n == length(ub) || throw(ArgumentError("length mismatch"))
+    bif(T(Inf)) >= k2 || throw(ArgumentError("total number of eigenvalues must be >= $k2"))
     fill!(lb, -T(Inf))
     fill!(ub, T(Inf))
     scalep = abs(scale)
     scalen = - scalep
     count = 0
-    # evaluate mulf(x) and improve bounds according to result.
+    # evaluate bif(x) and improve bounds according to result.
     function setx(x)
-        k = mulf(x)
+        k = bif(x) - k1 + 1 
         count += 1
-        for j =  max(k-k1+2, 1):k2-k1+1
-            if x > lb[j]
-                lb[j] = x
+        for j =  max(k-k1+1, 0):n-1
+            if x > lb[j+1]
+                lb[j+1] = x
             else
                 break
             end
         end
-        for j = min(n, k-k1+1):-1:1
+        for j = min(n, k):-1:1
             if x < ub[j]
                 ub[j] = x
             else
@@ -204,10 +205,13 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, scale::T, mulf) where {T<:Ab
     end
 
     # find (first) index j with ub[j] > lb[j+1]
-    function findgap()
+    function findgap(atol, rtol)
         for j = 1:n-1
-            if ub[j] > lb[j+1]
-                return j
+            dx = ub[j] - lb[j+1]
+            if dx > 0
+                if dx >= abs(ub[j]) * rtol + atol
+                    return j
+                end
             end
         end
         return n
@@ -216,10 +220,10 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, scale::T, mulf) where {T<:Ab
     function midpoint(a, b)
         x = a + (b - a) / 2
         isfinite(x) && return x
-        isnan(x) && return zero(x)
         if isinf(a)
+            isinf(b) && return zero(x)
             x = b + scalen
-            scalea *= 2
+            scalen *= 2
         else
             x = a + scalep
             scalep *= 2
@@ -235,7 +239,7 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, scale::T, mulf) where {T<:Ab
         x = midpoint(lb[n], ub[n])
         setx(x)
     end
-    while ( j = findgap() ) < n
+    while ( j = findgap(rtol, atol) ) < n
         x = midpoint(lb[j+1], ub[j])
         setx(x)
     end
