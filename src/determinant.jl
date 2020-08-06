@@ -35,11 +35,15 @@ function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
 end
 function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
     R = real(T)
+    Z = zero(R)
     n = size(A, 1)
     ϵ = T(eps(real(T)))
+    if isinf(s)
+        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z
+    end
     κ = 0
     dξp = dξpp = η = zero(R)
-    ξ, ξp, ξpp = zeros(R, 3)
+    ξ, ξp, ξpp = zero(R), zero(R), zero(R)
     ζs = zero(R)
     Q, Qp = initQ!( Q, Qp, A, B, s)
     for i = 1:n
@@ -161,7 +165,7 @@ mwiden(x::Type{Complex{T}}) where T = Complex{mwiden(T)}
 mwiden(x::T) where T = mwiden(T)(x)
 
 function make_kappa(A, B)
-    x -> detderivates(A, B, x)[1]
+    x -> begin k, = detderivates(A, B, x); k end
 end
 
 # determine lower and upper bounds for eigenvalues number k1:k2.
@@ -169,13 +173,13 @@ end
 # less than or equal to x.
 # scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
 # to control interval size growth for smallest and largest ev.
-function eigbounds(k1::Int, k2::Int, bif::Function, scale::T, rtol=eps(T), atol=rtol^2) where T<:AbstractFloat
+function eigbounds(k1::Int, k2::Int, bif::Function, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=rtolg^2) where T<:AbstractFloat
     n = k2 - k1 + 1
     lb = Vector{T}(undef, n)
     ub = Vector{T}(undef, n)
-    eigbounds!(lb, ub, k1, k2, bif, scale, rtol, atol)
+    eigbounds!(lb, ub, k1, k2, bif, scale, rtol, atol, rtolg, atolg)
 end
-function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol) where {T<:AbstractFloat,V<:AbstractVector{T}}
+function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol, rtolg, atolg) where {T<:AbstractFloat,V<:AbstractVector{T}}
     n = k2 - k1 + 1
     length(lb) == n == length(ub) || throw(ArgumentError("length mismatch"))
     bif(T(Inf)) >= k2 || throw(ArgumentError("total number of eigenvalues must be >= $k2"))
@@ -184,8 +188,12 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol) w
     scalep = abs(scale)
     scalen = - scalep
     count = 0
+    if isinf(atol) != isinf(rtol)
+        atol = ifelse(isinf(atol), zero(atol), atol)
+        rtol = ifelse(isinf(rtol), zero(rtol), rtol)
+    end
     # evaluate bif(x) and improve bounds according to result.
-    function setx(x)
+    function setx!(lb, ub, x)
         k = bif(x) - k1 + 1 
         count += 1
         for j =  max(k-k1+1, 0):n-1
@@ -204,18 +212,28 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol) w
         end
     end
 
-    # find (first) index j with ub[j] > lb[j+1]
-    function findgap(atol, rtol)
+    # find (first) index j with ub[j] - lb[j+1] > tol
+    function findgap(rtol, atol)
         for j = 1:n-1
             dx = ub[j] - lb[j+1]
-            if dx > 0
-                if dx >= abs(ub[j]) * rtol + atol
-                    return j
-                end
+            if dx >= max(max(abs(ub[j]), lb[j+1]) * rtol, atol)
+                return j
             end
         end
-        return n
+        return 0
     end
+
+    # find (first) index j with ub[j] - lb[j+1] > tol
+    function findbad(rtol, atol)
+        for j = 1:n
+            dx = ub[j] - lb[j]
+            if abs(dx) > max(max(abs(ub[j]), lb[j]) * rtol, atol)
+                return j
+            end
+        end
+        return 0
+    end
+
     # midpoint for finite a, b, otherwise extend towards infinity
     function midpoint(a, b)
         x = a + (b - a) / 2
@@ -233,17 +251,21 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol) w
 
     while isinf(lb[1])
         x = midpoint(lb[1], ub[1])
-        setx(x)
+        setx!(lb, ub, x)
     end
     while isinf(ub[n])
         x = midpoint(lb[n], ub[n])
-        setx(x)
+        setx!(lb, ub, x)
     end
-    while ( j = findgap(rtol, atol) ) < n
+    while ( j = findgap(rtolg, atolg) ) != 0
         x = midpoint(lb[j+1], ub[j])
-        setx(x)
+        setx!(lb, ub, x)
     end
-    lb, ub
+    while ( j = findbad(rtol, atol) ) != 0
+        x = midpoint(lb[j], ub[j])
+        setx!(lb, ub, x)
+    end
+    lb, ub, count
 end
 
 function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
@@ -274,7 +296,4 @@ function eigval(A, B, k::Int, a::T, b::T, tol::T=eps(T), r= 1) where T<:Abstract
     end
     x
 end
-
-
-
 
