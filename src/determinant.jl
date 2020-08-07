@@ -4,6 +4,7 @@ export mwiden, detderivates, eigbounds, make_kappa, eigval
 
 using BandedMatrices
 using DoubleFloats
+using StaticArrays
 
 const SymRealHerm{T} = Union{Symmetric{T,<:BandedMatrix},Hermitian{T,<:BandedMatrix}}
 struct Workspace{T,M<:SymRealHerm{T},TQ,TQp} 
@@ -80,7 +81,9 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
         updateQ!(ξ, Q, Qp, i)
         stepQ!(Q, Qp, i, A, B, s)
     end
-    κ, η, η^2 - ζs, dξp, dξpp, ξ, ξp, ξpp
+    ζ = η^2 - ζs
+    λ = laguerre(η, ζ, n, 1)
+    κ, η, ζ, λ, dξp, dξpp, ξ, ξp, ξpp
 end
 
 function initQ!(Q, Qp, A, B, s)
@@ -165,8 +168,8 @@ end
 function make_workspace(A::M, B::M) where {T,M<:SymRealHerm{T}}
     k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
     W = mwiden(T)
-    Q = zeros(W, k, k)
-    Qp = zeros(T, k, k, 2)
+    Q = MMatrix{k,k}(zeros(W, k, k))
+    Qp = MArray{Tuple{k,k,2}}(zeros(T, k, k, 2))
     Workspace(A, B, Q, Qp)
 end
 
