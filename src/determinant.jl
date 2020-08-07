@@ -6,6 +6,12 @@ using BandedMatrices
 using DoubleFloats
 
 const SymRealHerm{T} = Union{Symmetric{T,<:BandedMatrix},Hermitian{T,<:BandedMatrix}}
+struct Workspace{T,M<:SymRealHerm{T},TQ,TQp} 
+    A::M
+    B::M
+    Q::TQ
+    Qp::TQp
+end
 
 """
     detderivates(A, B, s::Real)
@@ -27,13 +33,11 @@ For a symmetric real or Hermtian matriices `A` and `B` calculate determinant of
     for example Newton's iteration `s -= 1 / η`.
 """
 function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
-    k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
-    W = mwiden(T)
-    Q = zeros(W, k, k)
-    Qp = zeros(T, k, k, 2)
-    detderivates!(Q, Qp, A, B, s)
+    ws = make_workspace(A, B)
+    detderivates!(ws, s)
 end
-function detderivates!(Q, Qp, A::M, B::M, s) where {T,M<:SymRealHerm{T}}
+function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
+    A, B, Q, Qp = ws.A, ws.B, ws.Q, ws.Qp
     R = real(T)
     Z = zero(R)
     n = size(A, 1)
@@ -158,60 +162,42 @@ function updateQ!(ξ, Q, Qp, k)
     nothing
 end
 
+function make_workspace(A::M, B::M) where {T,M<:SymRealHerm{T}}
+    k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
+    W = mwiden(T)
+    Q = zeros(W, k, k)
+    Qp = zeros(T, k, k, 2)
+    Workspace(A, B, Q, Qp)
+end
+
 # widen Float64 to Double64
 mwiden(x::Type) = widen(x)
 mwiden(x::Type{Float64}) = Float64 # Double64
 mwiden(x::Type{Complex{T}}) where T = Complex{mwiden(T)}
 mwiden(x::T) where T = mwiden(T)(x)
 
-function make_kappa(A, B)
-    x -> begin k, = detderivates(A, B, x); k end
-end
-
 # determine lower and upper bounds for eigenvalues number k1:k2.
 # Bisectional method for function bif, where bif(x) is the number of eigenvalues
 # less than or equal to x.
 # scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
 # to control interval size growth for smallest and largest ev.
-function eigbounds(k1::Int, k2::Int, bif::Function, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=rtolg^2) where T<:AbstractFloat
+function eigbounds(k1::Int, k2::Int, ws::Workspace, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=rtolg^2) where T<:AbstractFloat
     n = k2 - k1 + 1
     lb = Vector{T}(undef, n)
     ub = Vector{T}(undef, n)
-    eigbounds!(lb, ub, k1, k2, bif, scale, rtol, atol, rtolg, atolg)
+    eigbounds!(lb, ub, k1, k2, ws, scale, rtol, atol, rtolg, atolg)
 end
-function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol, rtolg, atolg) where {T<:AbstractFloat,V<:AbstractVector{T}}
+function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, ws, scale::T, rtol, atol, rtolg, atolg) where {T<:AbstractFloat,V<:AbstractVector{T}}
     n = k2 - k1 + 1
     length(lb) == n == length(ub) || throw(ArgumentError("length mismatch"))
-    bif(T(Inf)) >= k2 || throw(ArgumentError("total number of eigenvalues must be >= $k2"))
     fill!(lb, -T(Inf))
     fill!(ub, T(Inf))
     scalep = abs(scale)
-    scalen = - scalep
-    count = 0
+    scalen = -abs(scale)
     if isinf(atol) != isinf(rtol)
         atol = ifelse(isinf(atol), zero(atol), atol)
         rtol = ifelse(isinf(rtol), zero(rtol), rtol)
     end
-    # evaluate bif(x) and improve bounds according to result.
-    function setx!(lb, ub, x)
-        k = bif(x) - k1 + 1 
-        count += 1
-        for j =  max(k-k1+1, 0):n-1
-            if x > lb[j+1]
-                lb[j+1] = x
-            else
-                break
-            end
-        end
-        for j = min(n, k):-1:1
-            if x < ub[j]
-                ub[j] = x
-            else
-                break
-            end
-        end
-    end
-
     # find (first) index j with ub[j] - lb[j+1] > tol
     function findgap(rtol, atol)
         for j = 1:n-1
@@ -236,36 +222,50 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, bif, scale::T, rtol, atol, r
 
     # midpoint for finite a, b, otherwise extend towards infinity
     function midpoint(a, b)
-        x = a + (b - a) / 2
-        isfinite(x) && return x
-        if isinf(a)
-            isinf(b) && return zero(x)
-            x = b + scalen
-            scalen *= 2
-        else
-            x = a + scalep
-            scalep *= 2
-        end
-        x
+        a + (b - a) / 2
     end
 
+    setx!(lb, ub, 0.0, k1, ws)
     while isinf(lb[1])
-        x = midpoint(lb[1], ub[1])
-        setx!(lb, ub, x)
+        x = ub[1] + scalen
+        scalen *= 2
+        setx!(lb, ub, x, k1, ws)
     end
     while isinf(ub[n])
-        x = midpoint(lb[n], ub[n])
-        setx!(lb, ub, x)
+        x = lb[n] + scalep
+        scalep *= 2
+        setx!(lb, ub, x, k1, ws)
     end
     while ( j = findgap(rtolg, atolg) ) != 0
         x = midpoint(lb[j+1], ub[j])
-        setx!(lb, ub, x)
+        setx!(lb, ub, x, k1, ws)
     end
     while ( j = findbad(rtol, atol) ) != 0
         x = midpoint(lb[j], ub[j])
-        setx!(lb, ub, x)
+        setx!(lb, ub, x, k1, ws)
     end
-    lb, ub, count
+    lb, ub
+end
+
+# evaluate bif(x) and improve bounds according to result.
+function setx!(lb, ub, x, k1, ws)
+    n = length(lb)
+    k, = detderivates!(ws, x)
+    k = k - k1 + 1 
+    for j =  max(k-k1+1, 0):n-1
+        if x > lb[j+1]
+            lb[j+1] = x
+        else
+            break
+        end
+    end
+    for j = min(n, k):-1:1
+        if x < ub[j]
+            ub[j] = x
+        else
+            break
+        end
+    end
 end
 
 function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
@@ -275,10 +275,11 @@ function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
 end
 
 function eigval(A, B, k::Int, a::T, b::T, tol::T=eps(T), r= 1) where T<:AbstractFloat
+    ws = make_workspace(A, B)
     n = size(A, 1)
     x = a + (b - a) / 2
     while b - a > tol
-        κ, η, ζ = detderivates(A, B, x)
+        κ, η, ζ = detderivates!(ws, x)
         if κ < k
             a = x
         else
