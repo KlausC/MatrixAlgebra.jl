@@ -42,5 +42,6 @@ include("toeplitz.jl")
 include("givens.jl")
 include("zrst.jl")
 include("determinant.jl")
+include("rational.jl")
 
 end # module
