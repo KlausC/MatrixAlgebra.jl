@@ -1,7 +1,8 @@
 
 export RatApp, f0, f10, f20
 
-import Base: +, -, *, /, \, inv, conj, zero, one, oneunit, promote_rule
+import Base: +, -, *, /, \, inv, conj, sqrt
+import Base: zero, one, oneunit, promote_rule
 
 struct RatApp{T<:Number} <: Number
     a::T

@@ -1,5 +1,5 @@
 
-export mwiden, detderivates, eigbounds, make_kappa, eigval
+export detderivates, eigbounds, make_kappa, eigval
 
 
 using BandedMatrices
@@ -44,13 +44,13 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
     n = size(A, 1)
     ϵ = T(eps(real(T)))
     if isinf(s)
-        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z
+        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z, Z
     end
     κ = 0
     dξp = dξpp = η = zero(R)
     ξ, ξp, ξpp = zero(R), zero(R), zero(R)
     ζs = zero(R)
-    Q, Qp = initQ!( Q, Qp, A, B, s)
+    Q, Qp = initQ!(Q, Qp, A, B, s)
     for i = 1:n
         ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
         if iszero(ξ)
@@ -71,7 +71,7 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
         ζs += dζs
         if ζs < -η^2 / i
             # println("discriminant negative: i=$i ξ=$ξ $ξp $ξpp  η=$η ζs=$ζs")
-            ζs = -η^2 / i
+            ζs = R(NaN) # -η^2 / i
         end
         η += dξp
         if  i == n && ζs > 1.5e10 * η^2
@@ -93,6 +93,7 @@ function initQ!(Q, Qp, A, B, s)
         for i = j:k
             Q[i,j] = W(A[i,j]) - W(B[i,j]) * s
             Qp[i,j,1] = -B[i,j]
+            Qp[i,j,2] = 0
         end
     end
     Q, Qp
@@ -167,17 +168,15 @@ end
 
 function make_workspace(A::M, B::M) where {T,M<:SymRealHerm{T}}
     k = min(max(bandwidth(A), bandwidth(B)) + 1, size(A, 1))
-    W = mwiden(T)
-    Q = MMatrix{k,k}(zeros(W, k, k))
-    Qp = MArray{Tuple{k,k,2}}(zeros(T, k, k, 2))
+    if isbitstype(T) 
+        Q = MMatrix{k,k}(zeros(T, k, k))
+        Qp = MArray{Tuple{k,k,2}}(zeros(T, k, k, 2))
+    else
+        Q = zeros(T, k, k)
+        Qp = zeros(T, k, k, 2)
+    end
     Workspace(A, B, Q, Qp)
 end
-
-# widen Float64 to Double64
-mwiden(x::Type) = widen(x)
-mwiden(x::Type{Float64}) = Float64 # Double64
-mwiden(x::Type{Complex{T}}) where T = Complex{mwiden(T)}
-mwiden(x::T) where T = mwiden(T)(x)
 
 # determine lower and upper bounds for eigenvalues number k1:k2.
 # Bisectional method for function bif, where bif(x) is the number of eigenvalues
@@ -272,32 +271,82 @@ function setx!(lb, ub, x, k1, ws)
 end
 
 function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
-    disc = max(η^2 * (n -1) - ζ * n, 0)
-    sq = sqrt(disc * (n-1) / r)
+    disc = max(η^2 * (n - 1) - ζ * n, 0)
+    sq = sqrt(disc * (n - r) / r)
     n / ( η + copysign(sq, η) )
 end
 
-function eigval(A, B, k::Int, a::T, b::T, tol::T=eps(T), r= 1) where T<:AbstractFloat
+function eigval(A, B, k::Int, a::T, b::T, r=1) where T<:AbstractFloat
     ws = make_workspace(A, B)
-    n = size(A, 1)
+    eigval!(ws, k, a, b, r)
+end
+
+function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T}
+    n = size(ws.A, 1)
+    a, b = promote(a, b, zero(real(T)))
+    if check
+        κa, = detderivates!(ws, a)
+        κb, = detderivates!(ws, b)
+        κa <= k <= κb || throw(ArgumentException("eigenvalue($k) not in [$a,$b]"))
+    end
     x = a + (b - a) / 2
-    while b - a > tol
+    x1 = real(T)(NaN)
+    step = 0
+    while step < 100
         κ, η, ζ = detderivates!(ws, x)
         if κ < k
             a = x
         else
             b = x
         end
-        if κ == k - 1 && η <= 0 || κ == k && η >= 0
-            dx = -laguerre(η, ζ, n, r)
-            x += dx
-            if abs(dx) < tol
-                break
+        step += 1
+        x0 = x1
+        x1 = x
+        if κ < k && η <= 0 || κ >= k && η >= 0
+            if k - 1 <= κ <= k
+                dx = laguerre(η, ζ, n, r)
+                #println("step $step: η=$η ζ=$ζ dx=$dx η*dx=$(η*dx)")
+                if dx * η >= 0.5
+                    x = min(b, max(a, x1 - dx))
+                    #println("step $step: laguerre $x")
+                elseif isnan(dx) && (dx = inv(η)) |> isfinite && abs(dx) <  (b - a) / 2
+                    x = min(b, max(a, x1 - dx))
+                    #println("step $step: newton $x")
+                else
+                    x = a + (b - a) / 2
+                    #println("step $step: bisect1 $x")
+                end
+            else
+                x = κ > k ? a + (b - a) / (κ - k + 1) : b - (b - a) / (k - κ)
+                #println("step $step: division $x by $κ / $k")
             end
         else
             x = a + (b - a) / 2
+            #println("step $step: bisect2 $x")
         end
+        convergence2(x, x1, x0) && break
     end
     x
+end
+
+"""
+    convergence(x2, x1, x0)
+
+Determines convergence of a series, given 3 succcessive elements.
+
+returns `false`, if `|x2 - x1| <= ϵ * 1000`
+returns `true`, if `x1 == x2`
+returns `true`, if not monotonous and `|x2 - x1| >= |x1 - x0|`
+returns `true`, if `|x2 - x1|^2 <= (|x1 - x0| - |x2 - x1|) * ϵ
+returns `false` in all other cases
+"""
+function convergence2(x2, x1, x0)
+    ϵ = eps(x2)
+    dx2 = abs(x2 - x1)
+    x1 == x2 && return true
+    dx1 = abs(x1 - x0)
+    dx2 >= dx1 && (x2 > x1) != (x1 > x0) && return true
+    dx2^2 <= (dx1 - dx2) * ϵ && return true
+    return false
 end
 
