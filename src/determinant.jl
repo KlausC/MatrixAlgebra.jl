@@ -54,7 +54,7 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
     for i = 1:n
         ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
         if iszero(ξ)
-            ξ = ϵ
+            ξ = ϵ^1.5
         end
         dξp = ξp / ξ
         dξpp = ξpp / ξ
@@ -65,7 +65,7 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
             # println("Δη small: i=$i $(abs(η + dξp) / abs(η))")
         end
         if abs(dξpp) > dξ2 * 1000
-            dξpp = zero(R)
+            #dξpp = zero(R)
         end
         dζs = dξ2 - dξpp
         ζs += dζs
@@ -183,7 +183,7 @@ end
 # less than or equal to x.
 # scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
 # to control interval size growth for smallest and largest ev.
-function eigbounds(k1::Int, k2::Int, ws::Workspace, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=rtolg^2) where T<:AbstractFloat
+function eigbounds(k1::Int, k2::Int, ws::Workspace, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=T(0)) where T<:AbstractFloat
     n = k2 - k1 + 1
     lb = Vector{T}(undef, n)
     ub = Vector{T}(undef, n)
@@ -204,7 +204,7 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, ws, scale::T, rtol, atol, rt
     function findgap(rtol, atol)
         for j = 1:n-1
             dx = ub[j] - lb[j+1]
-            if dx >= max(max(abs(ub[j]), lb[j+1]) * rtol, atol)
+            if dx >= max(( ub[j+1] - lb[j] ) * rtol, atol)
                 return j
             end
         end
@@ -292,8 +292,9 @@ function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T
     x = a + (b - a) / 2
     x1 = real(T)(NaN)
     step = 0
+    η0 = NaN
     while step < 100
-        κ, η, ζ = detderivates!(ws, x)
+        κ, η, ζ0 = detderivates!(ws, x)
         if κ < k
             a = x
         else
@@ -303,26 +304,34 @@ function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T
         x0 = x1
         x1 = x
         if κ < k && η <= 0 || κ >= k && η >= 0
+            if isnan(η0)
+                ζ = zero(η)
+            else
+                Δ = (inv(η0) - inv(η)) / (x0 - x)
+                ζ = (1 - Δ) * η^2
+                println("zeta approximation $ζ , exact $ζ0")
+            end
             if k - 1 <= κ <= k
+                η0 = η
                 dx = laguerre(η, ζ, n, r)
-                #println("step $step: η=$η ζ=$ζ dx=$dx η*dx=$(η*dx)")
+                println("step $step: η=$η ζ=$ζ dx=$dx η*dx=$(η*dx)")
                 if dx * η >= 0.5
                     x = min(b, max(a, x1 - dx))
-                    #println("step $step: laguerre $x")
+                    println("step $step: laguerre $x")
                 elseif isnan(dx) && (dx = inv(η)) |> isfinite && abs(dx) <  (b - a) / 2
                     x = min(b, max(a, x1 - dx))
-                    #println("step $step: newton $x")
+                    println("step $step: newton $x")
                 else
                     x = a + (b - a) / 2
-                    #println("step $step: bisect1 $x")
+                    println("step $step: bisect1 $x")
                 end
             else
                 x = κ > k ? a + (b - a) / (κ - k + 1) : b - (b - a) / (k - κ)
-                #println("step $step: division $x by $κ / $k")
+                println("step $step: division $x by $κ / $k")
             end
         else
             x = a + (b - a) / 2
-            #println("step $step: bisect2 $x")
+            println("step $step: bisect2 $x")
         end
         convergence2(x, x1, x0) && break
     end
