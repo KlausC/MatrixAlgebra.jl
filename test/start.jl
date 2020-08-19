@@ -12,18 +12,23 @@ function sband(n::Integer, a::Vector{T}) where T
     SH(BandedMatrix([-i => fill(a[i+1], n-i) for i = 0:min(k,n)-1]...), :L) 
 end
 
-A, B = sband(n, [6.0, -4, 1]), sband(n, [2.0, 1, 0])
-ws = MatrixAlgebra.make_workspace(A, B)
+#A, B = sband(n, [6.0, -4, 1, 0.1]), sband(n, [2.0, 1, 0, 0])
+#ws = MatrixAlgebra.make_workspace(A, B)
+#cws(T) = MatrixAlgebra.make_workspace(copy_elementtype(T, A), copy_elementtype(T, B))
 
 eig(k) = MatrixAlgebra.eigval!(ws, k, lb[k], ub[k], 1)
 
 function pl(a, b)
     pf(x) = clamp(x - f(x), a, b)
-    ph(x) = clamp(x - h(x), a, b)
-    ph2(x) = clamp(x - h2(x, (b-a)/100), a, b)
+    ph1(x) = clamp(x - h(x, 1), a, b)
+    ph2(x) = clamp(x - h(x, 2), a, b)
+    ph3(x) = clamp(x - h(x, 3), a, b)
+    ph10(x) = clamp(x - h(x, 10), a, b)
+    ph100(x) = clamp(x - h(x, 100), a, b)
+    ph1000(x) = clamp(x - h(x, 1000), a, b)
     p = plot(legend=nothing)
     plot!(p, [a; b], [a; b])
-    plot!(p, range(a,stop=b,length=2001), [pf; ph; ph2])
+    plot!(p, range(a,stop=b,length=2001), [pf; ph1; ph2; ph3; ph10; ph100])
     #display(p)
 end
 
@@ -45,7 +50,7 @@ function h(x::AbstractFloat, r=1)
     n / η / ( 1 + sqrt((n-r)/r*max(((n-1) - n * a), 0.0)))
 end
 
-function h2(x::AbstractFloat, delta=2e-5, r=1)
+function hh(x::AbstractFloat, delta=2e-5, r=1)
     κ, η = detderivates(A, B, x)
     if η > 0
     η2 = η
@@ -54,8 +59,9 @@ function h2(x::AbstractFloat, delta=2e-5, r=1)
         _, η2 = detderivates(A, B, x + delta)
         η1 = η
     end
-     if abs(η * delta) < 100
-        ζ = (1 - (inv(η2) - inv(η1)) / delta) * η^2
+    if min(abs(η1), abs(η2)) * delta > 1e-3
+        ζ = -(inv(η2) - inv(η1)) / delta * η1 * η2 + η^2
+        println(">: $ζ")
     else
         ζ = (η2 - η1) / delta + η^2
     end
@@ -68,6 +74,11 @@ end
 function f(x)
     κ, η, ζ = detderivates(A, B, x)
     1 / η
+end
+
+function kappa(x, A=A, B=B)
+    κ, η, ζ = detderivates(A, B, x)
+    κ
 end
 
 nothing

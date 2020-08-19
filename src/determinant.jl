@@ -284,55 +284,64 @@ end
 function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T}
     n = size(ws.A, 1)
     a, b = promote(a, b, zero(real(T)))
+    κa = k - 1; κb = k
     if check
         κa, = detderivates!(ws, a)
         κb, = detderivates!(ws, b)
-        κa <= k <= κb || throw(ArgumentException("eigenvalue($k) not in [$a,$b]"))
+        κa < k <= κb || throw(ArgumentError("eigenvalue($k) not in [$a,$b]"))
+        r = max(κb - κa, 1)    
+        println("start: κa=$κa κb=$κb r=$r")
     end
+    println("start: κa=$κa κb=$κb r=$r")
     x = a + (b - a) / 2
     x1 = real(T)(NaN)
     step = 0
     η0 = NaN
     while step < 100
+        step += 1
         κ, η, ζ0 = detderivates!(ws, x)
         if κ < k
             a = x
+            κa = κ
+            r = max(κb - κa, 1)
         else
             b = x
+            κb = κ
+            r = max(κb - κa, 1)
         end
-        step += 1
+        println("$step: κ=$κ η=$η ζ=$ζ0 r=$r")
         x0 = x1
         x1 = x
-        if κ < k && η <= 0 || κ >= k && η >= 0
+        if κ < k && η <= 0 || κ >= k && η >= 0 # Newton points to ev[k]
             if isnan(η0)
                 ζ = zero(η)
             else
                 Δ = (inv(η0) - inv(η)) / (x0 - x)
                 ζ = (1 - Δ) * η^2
-                println("zeta approximation $ζ , exact $ζ0")
             end
-            if k - 1 <= κ <= k
+            if k - 1 <= κ <= k # 
                 η0 = η
-                dx = laguerre(η, ζ, n, r)
-                println("step $step: η=$η ζ=$ζ dx=$dx η*dx=$(η*dx)")
+                dx = laguerre(η, ζ0, n, r)
                 if dx * η >= 0.5
                     x = min(b, max(a, x1 - dx))
-                    println("step $step: laguerre $x")
+                    op = "Laguerre r=$r"
                 elseif isnan(dx) && (dx = inv(η)) |> isfinite && abs(dx) <  (b - a) / 2
                     x = min(b, max(a, x1 - dx))
-                    println("step $step: newton $x")
+                    op = "Newton"
                 else
                     x = a + (b - a) / 2
-                    println("step $step: bisect1 $x")
+                    op = "bisect1"
                 end
             else
                 x = κ > k ? a + (b - a) / (κ - k + 1) : b - (b - a) / (k - κ)
-                println("step $step: division $x by $κ / $k")
+                op = "division $κ / $k"
             end
         else
             x = a + (b - a) / 2
-            println("step $step: bisect2 $x")
+            op = "bisect2"
         end
+        dx = x - x1
+        println("step $step: $x $dx $op")
         convergence2(x, x1, x0) && break
     end
     x
@@ -343,7 +352,6 @@ end
 
 Determines convergence of a series, given 3 succcessive elements.
 
-returns `false`, if `|x2 - x1| <= ϵ * 1000`
 returns `true`, if `x1 == x2`
 returns `true`, if not monotonous and `|x2 - x1| >= |x1 - x0|`
 returns `true`, if `|x2 - x1|^2 <= (|x1 - x0| - |x2 - x1|) * ϵ
