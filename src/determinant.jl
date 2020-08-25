@@ -270,10 +270,14 @@ function setx!(lb, ub, x, k1, ws)
     end
 end
 
-function laguerre(η::T, ζ::T, n::Int, r::Int) where T<:AbstractFloat
+function laguerre1(η::T, ζ::T, n::Int, r) where T<:AbstractFloat
     disc = max(η^2 * (n - 1) - ζ * n, 0)
     sq = sqrt(disc * (n - r) / r)
     n / ( η + copysign(sq, η) )
+end
+
+function laguerre2(η::T, ζ::T, n::Int, r) where T<:AbstractFloat
+    1 / ( η * (1 - ζ / η^2) )
 end
 
 function eigval(A, B, k::Int, a::T, b::T, r=1) where T<:AbstractFloat
