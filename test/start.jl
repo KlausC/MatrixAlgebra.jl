@@ -18,7 +18,7 @@ cws(T) = MatrixAlgebra.make_workspace(copy_elementtype(T, A), copy_elementtype(T
 
 eig(k) = MatrixAlgebra.eigval!(ws, k, lb[k], ub[k], 1)
 
-function pl(a, b)
+function pl(a::T, b::T, v::AbstractVector = T[]) where T
     pf(x) = clamp(x - f(x), a, b)
     ph1(x) = clamp(x - h(x, 1), a, b)
     ph2(x) = clamp(x - h(x, 2), a, b)
@@ -26,10 +26,10 @@ function pl(a, b)
     ph10(x) = clamp(x - h(x, 10), a, b)
     ph100(x) = clamp(x - h(x, 100), a, b)
     ph1000(x) = clamp(x - h(x, 1000), a, b)
-    pg1(x) = clamp(x - g(x), a, b)
+    pg1(x) = clamp(x - g(x, v), a, b)
     p = plot(legend=nothing)
     plot!(p, [a; b], [a; b])
-    plot!(p, range(a,stop=b,length=2001), [pf; ph1; pg1])
+    plot!(p, range(a,stop=b,length=2001), [pf; ph1; ph2; pg1])
     #display(p)
 end
 
@@ -50,14 +50,17 @@ function h(x::AbstractFloat, r=1)
     MatrixAlgebra.laguerre(η, ζ, n, r)
 end
 
-function g(x::AbstractFloat)
-    κ, η, ζ = detderivates(A, B, x)
+function g(x::AbstractFloat, v::AbstractVector)
     n = size(A, 1)
-    r1 = float(1)
+    p = length(v)
+    y = sum(inv.(x .- v))
+    z = sum(inv.(x .- v) .^ 2)
+    κ, η, ζ = detderivates(A, B, x)
+    r1 = float(2)
     r2 = clamp((1 / ( 1 - ζ / η^2 )), 1, n)
-    w = 1 # η^2 / ( η^2 + abs(ζ) )
+    w = 0 # η^2 / ( η^2 + abs(ζ) )
     r = r1 + ( r2 - r1 ) * w^1 
-    MatrixAlgebra.laguerre1(η, ζ, n, r)
+    MatrixAlgebra.laguerre1(η - y, ζ + z + y*(y - 2η), n - p, r)
 end
 
 function hh(x::AbstractFloat, delta=2e-5, r=1)
