@@ -29,7 +29,7 @@ function pl(a::T, b::T, v::AbstractVector = T[]) where T
     pg1(x) = clamp(x - g(x, v), a, b)
     p = plot(legend=nothing)
     plot!(p, [a; b], [a; b])
-    plot!(p, range(a,stop=b,length=2001), [pf; ph1; ph2; pg1])
+    plot!(p, range(a,stop=b,length=2001), [pf; ph1; pg1])
     #display(p)
 end
 
@@ -40,14 +40,14 @@ end
 function plfh(a, b)
     p = plot(legend=nothing)
     plot!(p, [a; b], [0; 0])
-    plot!(p, range(a,stop=b,length=1001), [f; h; h2])
+    plot!(p, range(a,stop=b,length=1001), [f; h])
     #display(p)
 end
 
 function h(x::AbstractFloat, r=1)
     κ, η, ζ = detderivates(A, B, x)
     n = size(A, 1)
-    MatrixAlgebra.laguerre(η, ζ, n, r)
+    MatrixAlgebra.laguerre1(η, ζ, n, r)
 end
 
 function g(x::AbstractFloat, v::AbstractVector)
@@ -56,32 +56,11 @@ function g(x::AbstractFloat, v::AbstractVector)
     y = sum(inv.(x .- v))
     z = sum(inv.(x .- v) .^ 2)
     κ, η, ζ = detderivates(A, B, x)
-    r1 = float(2)
-    r2 = clamp((1 / ( 1 - ζ / η^2 )), 1, n)
-    w = 0 # η^2 / ( η^2 + abs(ζ) )
-    r = r1 + ( r2 - r1 ) * w^1 
-    MatrixAlgebra.laguerre1(η - y, ζ + z + y*(y - 2η), n - p, r)
-end
-
-function hh(x::AbstractFloat, delta=2e-5, r=1)
-    κ, η = detderivates(A, B, x)
-    if η > 0
-    η2 = η
-    _, η1 = detderivates(A, B, x - delta)
-    else
-        _, η2 = detderivates(A, B, x + delta)
-        η1 = η
-    end
-    if min(abs(η1), abs(η2)) * delta > 1e-3
-        ζ = -(inv(η2) - inv(η1)) / delta * η1 * η2 + η^2
-        println(">: $ζ")
-    else
-        ζ = (η2 - η1) / delta + η^2
-    end
-    #η = (2η1 + η2) / 3
-    n = size(A, 1)
-    a = clamp(ζ / η^2, -Inf, 1)
-    n / η / ( 1 + sqrt((n-r)/r*max(((n-1) - n * a), 0.0)))
+    r1 = float(1)
+    r2 = clamp(η^2 / ζ, 1, n)
+    w = 0 # η^2 / ( ζ + η^2 )
+    r = r1 + ( r2 - r1 ) * w^n 
+    MatrixAlgebra.laguerre1(η - y, ζ - z, n - p, r)
 end
 
 function f(x)
@@ -92,6 +71,11 @@ end
 function kappa(x, A=A, B=B)
     κ, η, ζ = detderivates(A, B, x)
     κ
+end
+
+function rest(x, A=A, B=B)
+    κ, η, ζ = detderivates(A, B, x)
+    η ^ 2 / ζ
 end
 
 nothing

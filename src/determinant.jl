@@ -24,11 +24,11 @@ For a symmetric real or Hermtian matriices `A` and `B` calculate determinant of
 
 `η`: `p'(s) / p(s)`
 
-`ζ`: `p''(s) / p(s)`
+`ζ`: `-(p'(s) / p(s))' = (p'(s) / p(s))^2 - p''(s) / p(s) `
 
 !!! note
     For a zero of `p` with multplicity `r`,
-    the Laguerre iteration formula is `s -= n / ( η + sqrt(((n-1)*η² - n*ζ) * (n-r)/r) )`.
+    the Laguerre iteration formula is `s -= n / ( η + sqrt((n * ζ - η^2) * (n-r)/r) )`.
 
     This iteration has far better area- and order of convergence than
     for example Newton's iteration `s -= 1 / η`.
@@ -44,12 +44,12 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
     n = size(A, 1)
     ϵ = T(eps(real(T)))
     if isinf(s)
-        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z, Z
+        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z, Z, Z
     end
     κ = 0
     dξp = dξpp = η = zero(R)
     ξ, ξp, ξpp = zero(R), zero(R), zero(R)
-    ζs = zero(R)
+    ζ = zero(R)
     Q, Qp = initQ!(Q, Qp, A, B, s)
     for i = 1:n
         ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
@@ -67,22 +67,21 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
         if abs(dξpp) > dξ2 * 1000
             #dξpp = zero(R)
         end
-        dζs = dξ2 - dξpp
-        ζs += dζs
-        if ζs < -η^2 / i
-            # println("discriminant negative: i=$i ξ=$ξ $ξp $ξpp  η=$η ζs=$ζs")
-            ζs = R(NaN) # -η^2 / i
+        dζ = dξ2 - dξpp
+        ζ += dζ
+        if ζ < -η^2 / i
+            # println("discriminant negative: i=$i ξ=$ξ $ξp $ξpp  η=$η ζ=$ζ")
+            ζ = R(NaN) # -η^2 / i
         end
         η += dξp
-        if  i == n && ζs > 1.5e10 * η^2
-            # println("discriminant too big: i=$i ξ=$ξ $ξp $ξpp  η=$η ζs=$ζs")
-            # ζs = 1.5 * η^2
+        if  i == n && ζ > 1.5e10 * η^2
+            # println("discriminant too big: i=$i ξ=$ξ $ξp $ξpp  η=$η ζ=$ζ")
+            # ζ = 1.5 * η^2
         end
         updateQ!(ξ, Q, Qp, i)
         stepQ!(Q, Qp, i, A, B, s)
     end
-    ζ = η^2 - ζs
-    λ = laguerre(η, ζ, n, 1)
+    λ = laguerre1(η, ζ, n, 1)
     κ, η, ζ, λ, dξp, dξpp, ξ, ξp, ξpp
 end
 
@@ -271,13 +270,13 @@ function setx!(lb, ub, x, k1, ws)
 end
 
 function laguerre1(η::T, ζ::T, n::Int, r) where T<:AbstractFloat
-    disc = max(η^2 * (n - 1) - ζ * n, 0)
+    disc = max(ζ * n - η^2, 0)
     sq = sqrt(disc * (n - r) / r)
     n / ( η + copysign(sq, η) )
 end
 
 function laguerre2(η::T, ζ::T, n::Int, r) where T<:AbstractFloat
-    1 / ( η * (1 - ζ / η^2) )
+    η / ζ
 end
 
 function eigval(A, B, k::Int, a::T, b::T, r=1) where T<:AbstractFloat
@@ -325,7 +324,7 @@ function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T
             end
             if k - 1 <= κ <= k # 
                 η0 = η
-                dx = laguerre(η, ζ0, n, r)
+                dx = laguerre1(η, ζ0, n, r)
                 if dx * η >= 0.5
                     x = min(b, max(a, x1 - dx))
                     op = "Laguerre r=$r"
