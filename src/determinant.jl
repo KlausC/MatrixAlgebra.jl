@@ -44,15 +44,17 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
     n = size(A, 1)
     ϵ = T(eps(real(T)))
     if isinf(s)
-        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z, Z, Z
+        return ifelse(s < 0, 0, n), Z, Z, Z, Z, Z, Z, Z, Z, Z, Z
     end
     κ = 0
     dξp = dξpp = η = zero(R)
     ξ, ξp, ξpp = zero(R), zero(R), zero(R)
     ζ = zero(R)
     Q, Qp = initQ!(Q, Qp, A, B, s)
+    ld = zero(R)
     for i = 1:n
         ξ, ξp, ξpp = R(real(Q[1,1])), real(Qp[1,1,1]), real(Qp[1,1,2])
+        ld += log(abs(ξ))
         if iszero(ξ)
             ξ = ϵ^1.5
         end
@@ -82,7 +84,7 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
         stepQ!(Q, Qp, i, A, B, s)
     end
     λ = laguerre1(η, ζ, n, 1)
-    κ, η, ζ, λ, dξp, dξpp, ξ, ξp, ξpp
+    κ, η, ζ, ld, λ, dξp, dξpp, ξ, ξp, ξpp
 end
 
 function initQ!(Q, Qp, A, B, s)

@@ -60,6 +60,7 @@ function g(x::AbstractFloat, v::AbstractVector)
     r2 = clamp(η^2 / ζ, 1, n)
     w = 0 # η^2 / ( ζ + η^2 )
     r = r1 + ( r2 - r1 ) * w^n 
+    r = clamp(rest(x), 1, n)
     MatrixAlgebra.laguerre1(η - y, ζ - z, n - p, r)
 end
 
