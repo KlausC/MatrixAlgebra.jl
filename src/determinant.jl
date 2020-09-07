@@ -35,7 +35,7 @@ function detderivates(A::M, B::M, s::Real) where {T,M<:SymRealHerm{T}}
     ws = make_workspace(A, B)
     detderivates!(ws, s)
 end
-function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
+function detderivates!(ws::Workspace{T,M}, s, L::Union{Nothing,AbstractArray{T,N}}=nothing) where {T,M<:SymRealHerm{T},N}
     A, B, Q, Qp = ws.A, ws.B, ws.Q, ws.Qp
     R = real(T)
     Z = zero(R)
@@ -59,6 +59,18 @@ function detderivates!(ws::Workspace{T,M}, s) where {T,M<:SymRealHerm{T}}
         dξp = ξp / ξ
         dξpp = ξpp / ξ
         #println("i=$i ξ=$ξ dξp=$dξp dξpp = $dξpp")
+        if L isa AbstractArray
+            L[1,i,1] = ξ
+            if N >= 3
+                L[1,i,2] = dξp
+            end
+            for j = 2:size(L,1)
+                L[j,i,1] = Q[j,1] / ξ
+                if N >= 3
+                    L[j,i,2] = (Qp[j,1,1] - Q[j,1] * dξp ) / ξ
+                end
+            end
+        end
         κ += ξ < 0
         dξ2 = dξp^2
         if abs(η + dξp) < abs(η) * 1e-5

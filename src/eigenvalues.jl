@@ -1,5 +1,5 @@
 
-export eigbounds, eigval
+export eigbounds, eigval, eigenvector
 
 # determine lower and upper bounds for eigenvalues number k1:k2.
 # Bisectional method for function bif, where bif(x) is the number of eigenvalues
@@ -192,5 +192,35 @@ function convergence2(x2, x1, x0)
     dx2 >= dx1 && (x2 > x1) != (x1 > x0) && return true
     dx2^2 <= (dx1 - dx2) * ϵ && return true
     return false
+end
+
+function eigenvector(A, B, k, a, b, r)
+    ws = make_workspace(A, B)
+    x = eigval!(ws, k, a, b, r)
+    L = zeros(size(ws.Q, 1), size(A, 1), 2)
+    detderivates!(ws, x, L)
+    _eigenvector(x, L)
+end
+
+function _eigenvector(x, L::Array{T}) where T
+    q, n = size(L)
+    v = Vector{T}(undef, n)
+    w = Vector{T}(undef, n)
+    v[n] = one(T)
+    w[n] = zero(T)
+    for i = n-1:-1:1
+        s = zero(T)
+        t = zero(T)
+        for j = 2:min(q, n - i + 1)
+            s -= v[i+j-1] * L[j,i,1]
+            t -= v[i+j-1] * L[j,i,2] + w[i+j-1] * L[j,i,1]
+        end
+        v[i] = s
+        w[i] = t
+    end
+    u = inv(sqrt(norm(v)))
+    v .*= u
+    w .*= u
+    x, v, w
 end
 
