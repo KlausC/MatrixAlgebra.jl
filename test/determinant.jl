@@ -29,7 +29,7 @@ end
     κ, η, ζ = detderivates(A, B, s)
     @test κ == n 
     @test η ≈ -n / (0.1 - s)
-    @test ζ ≈ n * (n-1) / (0.1 - s)^2
+    @test ζ ≈ n / (0.1 - s)^2
 end
 
 @testset "small real $n" for n = 1:4
@@ -39,7 +39,7 @@ end
     κ, η, ζ = detderivates(A, B, s)
     @test κ == 0 
     @test isapprox(η, det1(A, B, s) / d0; rtol=1e-3)
-    @test isapprox(ζ, det2(A, B, s) / d0; atol=1e-5, rtol=1e-3)
+    @test isapprox(η^2 - ζ, det2(A, B, s) / d0; atol=1e-5, rtol=1e-3)
 end
 
 @testset "small complex $n" for n = 1:4
@@ -51,13 +51,15 @@ end
     @test ζ isa Real
     @test κ == 0 
     @test isapprox(η, det1(A, B, s) / d0; rtol=1e-3)
-    @test isapprox(ζ, det2(A, B, s) / d0; atol=1e-5, rtol=1e-3)
+    @test isapprox(η^2 - ζ, det2(A, B, s) / d0; atol=1e-5, rtol=1e-3)
 end
 
 
 kappa(x) = x < 0.0 ? 0 : 2
 kappa1(x) = x < 1.0 ? 0 : 3
 kappa2(x) = x < 0.2 ? 0 : x < 1 ? 1 : x < 2 ? 3 : typemax(Int)
+
+MatrixAlgebra.detderivates!(f::Function, x) = f(x), 0.0, 0.0
 
 @testset "bisection bounds 0-2" begin
     lb, ub = eigbounds(1, 2, kappa, 1.0)

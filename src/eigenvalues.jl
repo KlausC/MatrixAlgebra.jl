@@ -6,7 +6,7 @@ export eigbounds, eigval, eigenvector
 # less than or equal to x.
 # scale is an (under-) estimation for the maximal abolute value of eigenvectors. It is used
 # to control interval size growth for smallest and largest ev.
-function eigbounds(k1::Int, k2::Int, ws::Workspace, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=T(0)) where T<:AbstractFloat
+function eigbounds(k1::Int, k2::Int, ws, scale::T; rtol=T(Inf), atol=T(Inf), rtolg=eps(T), atolg=eps(scale)) where T<:AbstractFloat
     n = k2 - k1 + 1
     lb = Vector{T}(undef, n)
     ub = Vector{T}(undef, n)
@@ -27,7 +27,7 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, ws, scale::T, rtol, atol, rt
     function findgap(rtol, atol)
         for j = 1:n-1
             dx = ub[j] - lb[j+1]
-            if dx >= max(( ub[j+1] - lb[j] ) * rtol, atol)
+            if dx >= max(max(abs(ub[j]), abs(lb[j]), ub[j+1] - lb[j]) * rtol, atol)
                 return j
             end
         end
@@ -38,7 +38,7 @@ function eigbounds!(lb::V, ub::V, k1::Int, k2::Int, ws, scale::T, rtol, atol, rt
     function findbad(rtol, atol)
         for j = 1:n
             dx = ub[j] - lb[j]
-            if abs(dx) > max(max(abs(ub[j]), lb[j]) * rtol, atol)
+            if abs(dx) > max(max(abs(ub[j]), abs(lb[j])) * rtol, atol)
                 return j
             end
         end

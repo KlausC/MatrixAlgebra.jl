@@ -14,13 +14,15 @@ end
 
 #A, B = sband(n, [6.0, -4, 1, 0.1]), sband(n, [2.0, 1, 0, 0])
 #ws = MatrixAlgebra.make_workspace(A, B)
-cws(T) = MatrixAlgebra.make_workspace(copy_elementtype(T, A), copy_elementtype(T, B))
+cws(T, A=A, B=B) = MatrixAlgebra.make_workspace(copy_elementtype(T, A), copy_elementtype(T, B))
 
 eig(k) = MatrixAlgebra.eigval!(ws, k, lb[k], ub[k], 1)
 
 function pl(a::T, b::T, v::AbstractVector = T[]) where T
     pf(x) = clamp(x - f(x), a, b)
     ph1(x) = clamp(x - h(x, 1), a, b)
+    phh0(x) = clamp(x - hh(x, 1, (1.0, 0.0, 0.0, 1.0)), a, b)
+    phh1(x) = clamp(x - hh(x, 1, (0.0, 1.0, 1.0, 0.0)), a, b)
     ph2(x) = clamp(x - h(x, 2), a, b)
     ph3(x) = clamp(x - h(x, 3), a, b)
     ph10(x) = clamp(x - h(x, 10), a, b)
@@ -29,7 +31,7 @@ function pl(a::T, b::T, v::AbstractVector = T[]) where T
     pg1(x) = clamp(x - g(x, v), a, b)
     p = plot(legend=nothing)
     plot!(p, [a; b], [a; b])
-    plot!(p, range(a,stop=b,length=2001), [pf; ph1; pg1])
+    plot!(p, range(a,stop=b,length=2001), [pf; phh0; phh1]) 
     #display(p)
 end
 
