@@ -22,7 +22,7 @@ function pl(a::T, b::T, v::AbstractVector = T[]) where T
     pf(x) = clamp(x - f(x), a, b)
     ph1(x) = clamp(x - h(x, 1), a, b)
     phh0(x) = clamp(x - hh(x, 1, (1.0, 0.0, 0.0, 1.0)), a, b)
-    phh1(x) = clamp(x - hh(x, 1, (0.0, 1.0, 1.0, 0.0)), a, b)
+    phh1(x) = clamp(x - hh(x, 1, (-1.0, 1.0, 1.0, 1.0)), a, b)
     ph2(x) = clamp(x - h(x, 2), a, b)
     ph3(x) = clamp(x - h(x, 3), a, b)
     ph10(x) = clamp(x - h(x, 10), a, b)
@@ -35,8 +35,9 @@ function pl(a::T, b::T, v::AbstractVector = T[]) where T
     #display(p)
 end
 
-function pl(a::Integer,b::Integer)
-    pl(eve[a], eve[b])
+function pl(a::Integer,b::Integer = a + 1)
+    d = (eve[b] - eve[a] ) * 0.5
+    pl(eve[a] - d, eve[b] + d)
 end
 
 function plfh(a, b)
@@ -64,6 +65,21 @@ function g(x::AbstractFloat, v::AbstractVector)
     r = r1 + ( r2 - r1 ) * w^n 
     r = clamp(rest(x), 1, n)
     MatrixAlgebra.laguerre1(η - y, ζ - z, n - p, r)
+end
+
+function hh(x::AbstractFloat, r = 1, (a,b,c,d) = (1.0, 0.0, 0.0, 1.0), A=A, B=B)
+    AA = A * a + B * c
+    BB = B * d + A * b
+    ws = cws(typeof(x), AA, BB)
+    t = (a * x + c) / (d + b * x)
+    κ, η, ζ = MatrixAlgebra.detderivates!(ws, t)
+    n = size(A, 1)
+    α = ζ / η^2
+    dt = n / η / ( 1 + sqrt((n-r)/r*max(n * α - 1, 0.0)))
+    tt = t - dt
+    xx = (d * tt - c) / (a - b * tt)
+    dx = x - xx
+    dx
 end
 
 function f(x)
