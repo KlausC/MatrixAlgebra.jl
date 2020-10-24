@@ -103,12 +103,19 @@ function laguerre2(η::T, ζ::T, n::Int, r) where T<:AbstractFloat
     η / ζ
 end
 
-function eigval(A, B, k::Int, a::T, b::T, r=1) where T<:AbstractFloat
+"""
+    eigval(A, B, k, a, b, r)
+
+Return eivenvalue number `k` of generalized eigenvalue problem `A x = λ B`
+if it is contained in interval `[a, b]`.
+To speed up local convergence assume multiplicity is `r`.
+"""
+function eigval(A, B, k::Union{Integer,UnitRange{<:Integer}}, a::T, b::T, r=1) where T<:AbstractFloat
     ws = make_workspace(A, B)
-    eigval!(ws, k, a, b, r)
+    eigval!(ws, k, a, b, r, true)
 end
 
-function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T}
+function eigval!(ws::Workspace{T}, k::Integer, a::S, b::S, r, check=true) where {S,T}
     n = size(ws.A, 1)
     a, b = promote(a, b, zero(real(T)))
     κa = k - 1; κb = k
@@ -166,6 +173,67 @@ function eigval!(ws::Workspace{T}, k::Int, a::S, b::S, r, check=true) where {S,T
         else
             x = a + (b - a) / 2
             op = "bisect2"
+        end
+        dx = x - x1
+        println("step $step: $x $dx $op")
+        convergence2(x, x1, x0) && break
+    end
+    x
+end
+
+function eigval!(ws::Workspace{T}, rk::UnitRange{<:Integer}, a::S, b::S, r, check=true) where {S,T}
+    n = size(ws.A, 1)
+    a, b = promote(a, b, zero(real(T)))
+    k1 = rk.start
+    k2 = rk.stop
+
+    κa = k1 - 1; κb = k2
+    if check
+        κa, = detderivates!(ws, a)
+        κb, = detderivates!(ws, b)
+        κa < k1 <= k2 <= κb || throw(ArgumentError("not all eigenvalues($rk) in [$a,$b]"))
+        r = 1 # max(κb - κa, 1)    
+        println("start: κa=$κa κb=$κb r=$r")
+    end
+    println("start: κa=$κa κb=$κb r=$r")
+    x = a + (b - a) / 2
+    x1 = real(T)(NaN)
+    step = 0
+    η0 = NaN
+    while step < 100
+        step += 1
+        κ, η, ζ0 = detderivates!(ws, x)
+        if κ < k1
+            a = x
+            κa = κ
+            r = 1 # max(κb - κa, 1)
+        elseif κ >= k2
+            b = x
+            κb = κ
+            r = 1 # max(κb - κa, 1)
+        end
+        println("$step: κ=$κ η=$η ζ=$ζ0 r=$r")
+        x0 = x1
+        x1 = x
+        if κ == k1 - 1 && η < 0 || κ == k2 && η > 0 || k1 <= κ < k2 && !isnan(η) 
+            α = abs(η0 / η)
+            r = α < 1 ? oftype(r, round((1.5*α - 0.5)/(1 - α))) : 1
+            η0 = η
+            dx = laguerre1(η, ζ0, n, r)
+            if dx * η >= 0.5
+                x = min(b, max(a, x1 - dx))
+                op = "Laguerre r=$r"
+            elseif isnan(dx) && (dx = inv(η)) |> isfinite && abs(dx) <  (b - a) / 2
+                x = min(b, max(a, x1 - dx))
+                op = "Newton"
+            else
+                x = a + (b - a) / 2
+                op = "bisect"
+            end
+        else
+            k = (k1 + k2) / 2
+            x = (a * (κb + 1 - k) + b * (k - κa)) / (κb - κa + 1)
+            op = "division $κ / $k"
         end
         dx = x - x1
         println("step $step: $x $dx $op")
