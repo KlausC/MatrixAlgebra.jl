@@ -21,7 +21,7 @@ end
 function blocksvd(A::AbstractMatrix{T}, s::Integer; rtol=1e-14, maxiter=1000) where {T}
     m, n = size(A)
     na = norm(A)
-    V = randn(T, n, s)
+    V = rand(T, n, s)
     U = T[]
     S = T[]
     err = Inf
@@ -38,5 +38,7 @@ function blocksvd(A::AbstractMatrix{T}, s::Integer; rtol=1e-14, maxiter=1000) wh
         err = norm(A * V - U * S)
         println("k = $k err/|A| = $(err / na)")
     end
-    S, U, V, err
+    s = diag(S)
+    LinearAlgebra.rmul!(V, Diagonal([x < 0 ? -1 : 1 for x in s]))
+    Diagonal(abs.(s)), U, V, err
 end
