@@ -44,5 +44,6 @@ include("zrst.jl")
 include("determinant.jl")
 include("eigenvalues.jl")
 include("rational.jl")
+include("blockiter.jl")
 
 end # module
