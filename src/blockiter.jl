@@ -6,16 +6,21 @@ function blockeig(A::AbstractMatrix{T}, s::Integer; rtol=1e-14, maxiter=1000) wh
     S = T[]
     err = Inf
     k = 0
+    H = real(T)[]
     while err > rtol * na && k < maxiter
         k += 1
         B = A * V
         Q, R = qr(B)
         V = Q[:, 1:s]
         S = R[1:s, 1:s]
+        ef = eigen(V' * A * V, sortby = x -> -abs(x))
+        V = V * ef.vectors
+        S = Diagonal(ef.values)
         err = norm(A * V - V * S)
+        push!(H, err / na)
         println("k = $k err/|A| = $(err / na)")
     end
-    Diagonal(diag(S)), V, err / na
+    Diagonal(diag(S)), V, err / na, H
 end
 
 function blocksvd(A::AbstractMatrix{T}, s::Integer; rtol=1e-14, maxiter=1000) where {T}
